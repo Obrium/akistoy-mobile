@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Akistoy</string>
+    <string name="notification_channel_name">Akistoy Beacon Service</string>
+    <string name="notification_channel_description">Notificaciones para la detección continua de beacons.</string>
+    <string name="notification_title">Akistoy activo</string>
+    <string name="notification_text">Detectando beacons cercanos</string>
+    <string name="permission_rationale">Akistoy necesita permisos de Bluetooth y ubicación para detectar beacons.</string>
+    <string name="grant_permissions">Otorgar permisos</string>
+</resources>
