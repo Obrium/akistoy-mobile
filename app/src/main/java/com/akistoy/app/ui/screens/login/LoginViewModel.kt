@@ -21,19 +21,17 @@ class LoginViewModel @Inject constructor(
 
     private val deviceId: String = UUID.randomUUID().toString()
 
-    fun onEmailChange(email: String) {
-        _state.value = _state.value.copy(email = email, error = null)
+    fun onNameChange(name: String) {
+        _state.value = _state.value.copy(name = name, error = null)
     }
 
     fun login() {
-        val email = _state.value.email
-        if (email.isBlank()) {
-            _state.value = _state.value.copy(error = "Ingresa un correo válido")
-            return
-        }
+        // El nombre es opcional, si está vacío se usará el nombre del dispositivo
+        val name = _state.value.name.trim()
+
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
-            loginUseCase(email, deviceId)
+            loginUseCase(name, deviceId)
                 .onSuccess {
                     _state.value = _state.value.copy(isLoading = false, success = true)
                 }
@@ -48,7 +46,7 @@ class LoginViewModel @Inject constructor(
 }
 
 data class LoginUiState(
-    val email: String = "",
+    val name: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
     val success: Boolean = false

@@ -91,5 +91,9 @@ abstract class RepositoryModule {
 object AppModule {
     @Provides
     @Singleton
-    fun provideAppDispatchers(): AppDispatchers = AppDispatchers()
+    fun provideAppDispatchers(): AppDispatchers = AppDispatchers(
+        io = kotlinx.coroutines.Dispatchers.IO,
+        default = kotlinx.coroutines.Dispatchers.Default,
+        main = kotlinx.coroutines.Dispatchers.Main
+    )
 }

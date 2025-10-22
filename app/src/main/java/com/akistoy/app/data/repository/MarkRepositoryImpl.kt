@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.toISO8601String
+import kotlinx.datetime.Instant
 
 @Singleton
 class MarkRepositoryImpl @Inject constructor(
@@ -55,7 +55,7 @@ class MarkRepositoryImpl @Inject constructor(
                     userId = user.id,
                     beaconId = event.beaconId,
                     rssi = event.rssi,
-                    timestamp = event.timestamp.toISO8601String()
+                    timestamp = event.timestamp.toString()
                 )
                 api.sendMark(request)
             }

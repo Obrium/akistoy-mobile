@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlin.time.Duration.Companion.milliseconds
 
 @Singleton
 class BeaconRepositoryImpl @Inject constructor(
@@ -34,7 +35,7 @@ class BeaconRepositoryImpl @Inject constructor(
                 val key = "${event.beaconId}-${event.namespace ?: ""}"
                 val now = Clock.System.now()
                 val lastSeen = recent[key]
-                if (lastSeen == null || now.minus(lastSeen) > DEDUP_WINDOW_MS) {
+                if (lastSeen == null || now.minus(lastSeen) > DEDUP_WINDOW_MS.milliseconds) {
                     recent[key] = now
                     val updated = (_detections.value + event)
                         .takeLast(MAX_BUFFER_SIZE)

@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class LoginRequest(
-    @SerialName("email") val email: String,
+    @SerialName("name") val name: String,
     @SerialName("device_id") val deviceId: String
 )
 
@@ -13,5 +13,5 @@ data class LoginRequest(
 data class LoginResponse(
     @SerialName("user_id") val userId: String,
     @SerialName("token") val token: String,
-    @SerialName("email") val email: String
+    @SerialName("name") val name: String
 )

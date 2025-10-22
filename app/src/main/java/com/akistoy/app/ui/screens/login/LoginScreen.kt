@@ -31,7 +31,7 @@ fun LoginRoute(
     }
     LoginScreen(
         state = state,
-        onEmailChange = viewModel::onEmailChange,
+        onNameChange = viewModel::onNameChange,
         onLogin = viewModel::login
     )
 }
@@ -39,7 +39,7 @@ fun LoginRoute(
 @Composable
 fun LoginScreen(
     state: LoginUiState,
-    onEmailChange: (String) -> Unit,
+    onNameChange: (String) -> Unit,
     onLogin: () -> Unit
 ) {
     Column(
@@ -50,11 +50,18 @@ fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(text = "Akistoy", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Ingresa tu nombre (opcional)",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(modifier = Modifier.height(16.dp))
         OutlinedTextField(
-            value = state.email,
-            onValueChange = onEmailChange,
-            label = { Text(text = "Correo electrónico") },
+            value = state.name,
+            onValueChange = onNameChange,
+            label = { Text(text = "Tu nombre") },
+            placeholder = { Text(text = "Usa el nombre del dispositivo") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
@@ -67,7 +74,7 @@ fun LoginScreen(
             if (state.isLoading) {
                 CircularProgressIndicator(modifier = Modifier.height(18.dp))
             } else {
-                Text(text = "Iniciar sesión")
+                Text(text = "Continuar")
             }
         }
         state.error?.let { error ->

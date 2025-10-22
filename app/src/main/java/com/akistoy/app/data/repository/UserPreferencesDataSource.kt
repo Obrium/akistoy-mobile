@@ -24,7 +24,7 @@ class UserPreferencesDataSource @Inject constructor(
 ) {
     private object Keys {
         val USER_ID = stringPreferencesKey("user_id")
-        val EMAIL = stringPreferencesKey("email")
+        val NAME = stringPreferencesKey("name")
         val TOKEN = stringPreferencesKey("token")
         val DEVICE_ID = stringPreferencesKey("device_id")
         val UUIDS = stringPreferencesKey("tracked_uuids")
@@ -37,13 +37,13 @@ class UserPreferencesDataSource @Inject constructor(
         }
         .map { preferences ->
             val userId = preferences[Keys.USER_ID]
-            val email = preferences[Keys.EMAIL]
+            val name = preferences[Keys.NAME]
             val token = preferences[Keys.TOKEN]
             val deviceId = preferences[Keys.DEVICE_ID]
-            if (userId != null && email != null && token != null && deviceId != null) {
+            if (userId != null && name != null && token != null && deviceId != null) {
                 User(
                     id = userId,
-                    email = email,
+                    name = name,
                     token = token,
                     deviceId = deviceId
                 )
@@ -61,7 +61,7 @@ class UserPreferencesDataSource @Inject constructor(
     suspend fun setUser(user: User) {
         context.dataStore.edit { preferences ->
             preferences[Keys.USER_ID] = user.id
-            preferences[Keys.EMAIL] = user.email
+            preferences[Keys.NAME] = user.name
             preferences[Keys.TOKEN] = user.token
             preferences[Keys.DEVICE_ID] = user.deviceId
         }
@@ -70,7 +70,7 @@ class UserPreferencesDataSource @Inject constructor(
     suspend fun clearUser() {
         context.dataStore.edit { preferences ->
             preferences.remove(Keys.USER_ID)
-            preferences.remove(Keys.EMAIL)
+            preferences.remove(Keys.NAME)
             preferences.remove(Keys.TOKEN)
             preferences.remove(Keys.DEVICE_ID)
         }
