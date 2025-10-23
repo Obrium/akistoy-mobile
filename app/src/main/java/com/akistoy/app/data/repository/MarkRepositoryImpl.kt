@@ -55,7 +55,8 @@ class MarkRepositoryImpl @Inject constructor(
                     userId = user.id,
                     beaconId = event.beaconId,
                     rssi = event.rssi,
-                    timestamp = event.timestamp.toString()
+                    timestamp = event.timestamp.toString(),
+                    eventType = event.eventType.name.lowercase()
                 )
                 api.sendMark(request)
             }

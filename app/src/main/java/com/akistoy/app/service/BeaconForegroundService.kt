@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.akistoy.app.R
 import com.akistoy.app.domain.usecase.StartScanningUseCase
@@ -35,6 +36,7 @@ class BeaconForegroundService : Service() {
 
     private val scope = CoroutineScope(Dispatchers.Default)
     private var runningJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -46,23 +48,47 @@ class BeaconForegroundService : Service() {
 
     private fun startForegroundService() {
         if (runningJob != null) return
+
+        // Adquirir wake lock para mantener el CPU activo
+        acquireWakeLock()
+
         createNotificationChannel()
-        val notification = buildNotification()
+        val notification = buildNotification("Escaneando beacons...")
         startForeground(NOTIFICATION_ID, notification)
         runningJob = scope.launch {
             startScanningUseCase()
         }
     }
 
+    private fun acquireWakeLock() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "Akistoy::BeaconServiceWakeLock"
+        ).apply {
+            acquire(10*60*1000L /*10 minutos*/)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+        wakeLock = null
+    }
+
     private fun stopForegroundService() {
         runningJob?.cancel()
         runningJob = null
+        releaseWakeLock()
         scope.launch { stopScanningUseCase() }
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(status: String = "Activo"): Notification {
         val intent = intentFactory.create(this)
         val pending = PendingIntent.getActivity(
             this,
@@ -73,11 +99,19 @@ class BeaconForegroundService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
+            .setContentText(status)
             .setOngoing(true)
             .setContentIntent(pending)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
+    }
+
+    fun updateNotification(text: String) {
+        val notification = buildNotification(text)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(NOTIFICATION_ID, notification)
     }
 
     private fun createNotificationChannel() {
@@ -99,7 +133,14 @@ class BeaconForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         runningJob?.cancel()
+        releaseWakeLock()
         scope.launch { stopScanningUseCase() }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // No detener el servicio cuando se cierra la app
+        // El servicio seguirá corriendo en segundo plano
     }
 
     companion object {

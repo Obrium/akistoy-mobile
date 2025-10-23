@@ -9,7 +9,8 @@ data class BeaconMarkRequest(
     @SerialName("user_id") val userId: String,
     @SerialName("beacon_id") val beaconId: String,
     @SerialName("rssi") val rssi: Int,
-    @SerialName("ts_client") val timestamp: String
+    @SerialName("ts_client") val timestamp: String,
+    @SerialName("event_type") val eventType: String  // "entry", "exit", "detection"
 )
 
 @Serializable
