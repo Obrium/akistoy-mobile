@@ -3,6 +3,7 @@ package com.akistoy.app.ui.screens.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.akistoy.app.domain.usecase.LoginUseCase
+import com.akistoy.app.service.ServiceController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +14,8 @@ import java.util.UUID
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
-    private val loginUseCase: LoginUseCase
+    private val loginUseCase: LoginUseCase,
+    private val serviceController: ServiceController
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LoginUiState())
@@ -34,6 +36,8 @@ class LoginViewModel @Inject constructor(
             loginUseCase(name, deviceId)
                 .onSuccess {
                     _state.value = _state.value.copy(isLoading = false, success = true)
+                    // Auto-iniciar el servicio de escaneo después de login exitoso
+                    serviceController.startService()
                 }
                 .onFailure { throwable ->
                     _state.value = _state.value.copy(

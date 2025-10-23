@@ -2,8 +2,11 @@ package com.akistoy.app.core.di
 
 import com.akistoy.app.BuildConfig
 import com.akistoy.app.core.util.AppDispatchers
+import android.content.Context
 import com.akistoy.app.data.beacon.BeaconScanner
 import com.akistoy.app.data.beacon.RealBeaconScanner
+import com.akistoy.app.data.beacon.SimulatedBeaconScanner
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.akistoy.app.data.remote.api.AkistoyApi
 import com.akistoy.app.data.remote.interceptor.AuthInterceptor
 import com.akistoy.app.data.repository.AuthRepositoryImpl
@@ -81,9 +84,23 @@ abstract class RepositoryModule {
 
     @Binds
     abstract fun bindConfigRepository(impl: ConfigRepositoryImpl): ConfigRepository
+}
 
-    @Binds
-    abstract fun bindBeaconScanner(scanner: RealBeaconScanner): BeaconScanner
+@Module
+@InstallIn(SingletonComponent::class)
+object BeaconModule {
+    @Provides
+    @Singleton
+    fun provideBeaconScanner(
+        @ApplicationContext context: Context,
+        realScanner: RealBeaconScanner,
+        simulatedScanner: SimulatedBeaconScanner
+    ): BeaconScanner {
+        // Usar scanner simulado en modo debug para pruebas
+        // Cambiar a false para usar hardware BLE real
+        val useSimulation = BuildConfig.DEBUG && true
+        return if (useSimulation) simulatedScanner else realScanner
+    }
 }
 
 @Module

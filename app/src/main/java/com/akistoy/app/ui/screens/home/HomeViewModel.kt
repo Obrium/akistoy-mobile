@@ -60,6 +60,15 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun ensureServiceStarted() {
+        viewModelScope.launch {
+            // Siempre iniciar el servicio si no está corriendo
+            if (!_state.value.isServiceRunning) {
+                serviceController.startService()
+            }
+        }
+    }
+
     fun toggleService() {
         viewModelScope.launch {
             val current = _state.value.isServiceRunning

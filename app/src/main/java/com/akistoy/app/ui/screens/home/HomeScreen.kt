@@ -43,9 +43,14 @@ fun HomeRoute(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    // Auto-iniciar el servicio de escaneo al cargar la pantalla
+    LaunchedEffect(Unit) {
+        viewModel.ensureServiceStarted()
+    }
+
     HomeScreen(
         state = state,
-        onToggle = viewModel::toggleService,
         onOpenSettings = onOpenSettings
     )
 }
@@ -53,7 +58,6 @@ fun HomeRoute(
 @Composable
 fun HomeScreen(
     state: HomeUiState,
-    onToggle: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -162,9 +166,36 @@ fun HomeScreen(
                 Text(text = "Última: ${state.lastDetectionTime.toReadableTime()}")
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
-                Text(text = if (state.isServiceRunning) "Detener escaneo" else "Activar escaneo")
+
+            // Indicador de estado del servicio (siempre activo)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (state.isServiceRunning)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else
+                        MaterialTheme.colorScheme.errorContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (state.isServiceRunning) "✓ Escaneo activo" else "⚠ Iniciando escaneo...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (state.isServiceRunning)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.error
+                    )
+                }
             }
+
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                 Text(text = "Configuración")
