@@ -38,7 +38,7 @@ fun AkistoyNavHost(navController: NavHostController = rememberNavController()) {
             HomeRoute(onOpenSettings = { navController.navigate(NavRoutes.SETTINGS) })
         }
         composable(NavRoutes.SETTINGS) {
-            SettingsRoute()
+            SettingsRoute(onNavigateBack = { navController.popBackStack() })
         }
     }
 }

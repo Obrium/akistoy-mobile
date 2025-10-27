@@ -98,7 +98,7 @@ object BeaconModule {
     ): BeaconScanner {
         // Usar scanner simulado en modo debug para pruebas
         // Cambiar a false para usar hardware BLE real
-        val useSimulation = BuildConfig.DEBUG && true
+        val useSimulation = BuildConfig.DEBUG && true  // true = beacons simulados
         return if (useSimulation) simulatedScanner else realScanner
     }
 }

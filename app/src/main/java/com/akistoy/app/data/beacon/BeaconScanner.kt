@@ -117,13 +117,34 @@ class RealBeaconScanner @Inject constructor(
             result.rssi < -80 -> BeaconProximity.Far
             else -> BeaconProximity.Unknown
         }
+        val distance = calculateDistance(result.rssi)
         return BeaconEvent(
             beaconId = beaconId,
             namespace = result.scanRecord?.serviceUuids?.firstOrNull()?.uuid?.toString(),
             rssi = result.rssi,
             timestamp = Clock.System.now(),
-            proximity = proximity
+            proximity = proximity,
+            distanceMeters = distance
         )
+    }
+
+    /**
+     * Calcula la distancia en metros basándose en el RSSI
+     * Fórmula: distance = 10 ^ ((txPower - rssi) / (10 * n))
+     * txPower: -59 dBm (potencia típica de beacons BLE a 1 metro)
+     * n: 2.0 (factor de propagación para ambientes abiertos)
+     */
+    private fun calculateDistance(rssi: Int): Double {
+        val txPower = -59.0 // Potencia de transmisión a 1 metro
+        val n = 2.0 // Factor de propagación
+
+        if (rssi == 0) return -1.0 // Señal no válida
+
+        val ratio = (txPower - rssi) / (10.0 * n)
+        val distance = Math.pow(10.0, ratio)
+
+        // Redondear a 2 decimales
+        return (distance * 100).toInt() / 100.0
     }
 
     private fun parseIdentifier(result: ScanResult): String {
@@ -147,13 +168,15 @@ class FakeBeaconScanner @Inject constructor() : BeaconScanner {
     override fun startScanning(uuids: List<String>) {
         scope.launch {
             uuids.takeIf { it.isNotEmpty() }?.forEachIndexed { index, uuid ->
+                val rssi = -60 + index
                 _detections.emit(
                     BeaconEvent(
                         beaconId = uuid.takeLast(12),
                         namespace = uuid,
-                        rssi = -60 + index,
+                        rssi = rssi,
                         timestamp = Clock.System.now(),
-                        proximity = BeaconProximity.Near
+                        proximity = BeaconProximity.Near,
+                        distanceMeters = 1.0 + (index * 0.5)
                     )
                 )
             }

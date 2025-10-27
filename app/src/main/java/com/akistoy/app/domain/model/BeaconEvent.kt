@@ -8,7 +8,8 @@ data class BeaconEvent(
     val rssi: Int,
     val timestamp: Instant,
     val proximity: BeaconProximity = BeaconProximity.Unknown,
-    val eventType: BeaconEventType = BeaconEventType.DETECTION
+    val eventType: BeaconEventType = BeaconEventType.DETECTION,
+    val distanceMeters: Double = 0.0
 )
 
 enum class BeaconProximity {

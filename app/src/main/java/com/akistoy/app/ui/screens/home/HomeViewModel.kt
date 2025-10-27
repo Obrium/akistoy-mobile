@@ -40,8 +40,8 @@ class HomeViewModel @Inject constructor(
             ) { detections, serviceEnabled ->
                 detections to serviceEnabled
             }.collect { (detections, serviceEnabled) ->
-                // El beacon activo es el más reciente detectado (más cercano en tiempo)
-                val activeBeacon = detections.lastOrNull()
+                // El beacon activo es el que tiene mejor señal (RSSI más alto)
+                val activeBeacon = detections.maxByOrNull { it.rssi }
 
                 _state.value = _state.value.copy(
                     isServiceRunning = serviceEnabled,
@@ -51,6 +51,7 @@ class HomeViewModel @Inject constructor(
                     lastRssi = activeBeacon?.rssi,
                     activeBeaconId = activeBeacon?.beaconId,
                     activeBeaconProximity = activeBeacon?.proximity?.name,
+                    distanceMeters = activeBeacon?.distanceMeters,
                     bluetoothEnabled = isBluetoothEnabled()
                 )
                 activeBeacon?.let { event ->
@@ -99,5 +100,6 @@ data class HomeUiState(
     val lastRssi: Int? = null,
     val activeBeaconId: String? = null,
     val activeBeaconProximity: String? = null,
+    val distanceMeters: Double? = null,
     val bluetoothEnabled: Boolean = true
 )
