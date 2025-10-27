@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -26,9 +27,16 @@ fun LoginRoute(
     viewModel: LoginViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    if (state.success) {
-        onSuccess()
+
+    // ESTABILIDAD: Usar LaunchedEffect para ejecutar navegación solo una vez
+    LaunchedEffect(state.success) {
+        if (state.success) {
+            onSuccess()
+            // Resetear el estado para evitar navegación automática si se vuelve a esta pantalla
+            viewModel.resetSuccessState()
+        }
     }
+
     LoginScreen(
         state = state,
         onNameChange = viewModel::onNameChange,

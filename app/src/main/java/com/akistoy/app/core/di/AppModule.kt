@@ -9,6 +9,8 @@ import com.akistoy.app.data.beacon.SimulatedBeaconScanner
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.akistoy.app.data.remote.api.AkistoyApi
 import com.akistoy.app.data.remote.interceptor.AuthInterceptor
+import com.akistoy.app.data.remote.interceptor.ErrorHandlingInterceptor
+import com.akistoy.app.data.remote.interceptor.RateLimitInterceptor
 import com.akistoy.app.data.repository.AuthRepositoryImpl
 import com.akistoy.app.data.repository.BeaconRepositoryImpl
 import com.akistoy.app.data.repository.ConfigRepositoryImpl
@@ -30,6 +32,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.util.concurrent.TimeUnit
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -44,12 +47,28 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(
-        authInterceptor: AuthInterceptor
+        authInterceptor: AuthInterceptor,
+        errorHandlingInterceptor: ErrorHandlingInterceptor,
+        rateLimitInterceptor: RateLimitInterceptor
     ): OkHttpClient = OkHttpClient.Builder()
+        // ESTABILIDAD: Orden de interceptors es importante
+        // 1. Rate limiting (antes de todo)
+        .addInterceptor(rateLimitInterceptor)
+        // 2. Logging (para debug)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.BASIC
         })
+        // 3. Auth (agregar token)
         .addInterceptor(authInterceptor)
+        // 4. Error handling (manejar responses)
+        .addInterceptor(errorHandlingInterceptor)
+        // ESTABILIDAD: Agregar timeouts para prevenir requests colgados
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .callTimeout(90, TimeUnit.SECONDS)
+        // ESTABILIDAD: Retry en fallas de conexión
+        .retryOnConnectionFailure(true)
         .build()
 
     @Provides

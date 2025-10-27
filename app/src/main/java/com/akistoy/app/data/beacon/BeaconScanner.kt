@@ -45,18 +45,44 @@ class RealBeaconScanner @Inject constructor(
 
     @SuppressLint("MissingPermission")
     override fun startScanning(uuids: List<String>) {
+        // ESTABILIDAD: Validación temprana de pre-condiciones
         val bluetoothManager = context.getSystemService(BluetoothManager::class.java)
-        val adapter = bluetoothManager?.adapter ?: return
-        if (!adapter.isEnabled) return
+        val adapter = bluetoothManager?.adapter
+
+        if (adapter == null) {
+            Log.e("RealBeaconScanner", "Bluetooth adapter not available")
+            return
+        }
+
+        if (!adapter.isEnabled) {
+            Log.w("RealBeaconScanner", "Bluetooth is disabled, cannot start scanning")
+            return
+        }
+
         scanner = adapter.bluetoothLeScanner
-        val filters = uuids.takeIf { it.isNotEmpty() }?.mapNotNull { uuid ->
+        if (scanner == null) {
+            Log.e("RealBeaconScanner", "BluetoothLeScanner not available")
+            return
+        }
+
+        // ESTABILIDAD: Validar y filtrar UUIDs inválidos
+        val validUuids = uuids.filter { it.isNotBlank() }
+        if (validUuids.isEmpty()) {
+            Log.w("RealBeaconScanner", "No valid UUIDs provided, scanning without filters")
+        }
+
+        val filters = validUuids.mapNotNull { uuid ->
             try {
+                // Validar formato UUID antes de crear ParcelUuid
+                java.util.UUID.fromString(uuid)  // Lanza IllegalArgumentException si es inválido
                 ScanFilter.Builder().setServiceUuid(ParcelUuid.fromString(uuid)).build()
             } catch (ex: IllegalArgumentException) {
-                Log.w("RealBeaconScanner", "Invalid UUID $uuid", ex)
+                Log.e("RealBeaconScanner", "Invalid UUID format: $uuid", ex)
                 null
             }
         }
+
+        Log.d("RealBeaconScanner", "Starting scan with ${filters.size} valid filters from ${validUuids.size} UUIDs")
 
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -81,18 +107,49 @@ class RealBeaconScanner @Inject constructor(
             }
 
             override fun onScanFailed(errorCode: Int) {
-                Log.e("RealBeaconScanner", "Scan failed with $errorCode")
+                // ESTABILIDAD: Manejo detallado de errores de scan
+                val errorMessage = when (errorCode) {
+                    android.bluetooth.le.ScanCallback.SCAN_FAILED_ALREADY_STARTED ->
+                        "Scan already started"
+                    android.bluetooth.le.ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED ->
+                        "App registration failed"
+                    android.bluetooth.le.ScanCallback.SCAN_FAILED_INTERNAL_ERROR ->
+                        "Internal error"
+                    android.bluetooth.le.ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED ->
+                        "Feature unsupported"
+                    else -> "Unknown error code: $errorCode"
+                }
+                Log.e("RealBeaconScanner", "Scan failed: $errorMessage")
+
+                // ESTABILIDAD: Auto-recovery - intentar detener y limpiar
+                callback?.let {
+                    try {
+                        scanner?.stopScan(it)
+                    } catch (e: Exception) {
+                        Log.w("RealBeaconScanner", "Error stopping scan after failure", e)
+                    }
+                }
+                callback = null
             }
         }
 
+        // ESTABILIDAD: Manejo robusto de excepciones al iniciar scan
         try {
             if (filters.isNullOrEmpty()) {
                 scanner?.startScan(callback)
             } else {
                 scanner?.startScan(filters, settings, callback)
             }
+            Log.i("RealBeaconScanner", "Scan started successfully")
         } catch (security: SecurityException) {
-            Log.e("RealBeaconScanner", "Missing permission", security)
+            Log.e("RealBeaconScanner", "Missing Bluetooth permission", security)
+            callback = null
+        } catch (illegal: IllegalStateException) {
+            Log.e("RealBeaconScanner", "Bluetooth OFF or unavailable", illegal)
+            callback = null
+        } catch (e: Exception) {
+            Log.e("RealBeaconScanner", "Unexpected error starting scan", e)
+            callback = null
         }
     }
 

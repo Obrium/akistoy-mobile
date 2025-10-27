@@ -50,6 +50,7 @@ class HomeViewModel @Inject constructor(
                     lastDetectionTime = activeBeacon?.timestamp,
                     lastRssi = activeBeacon?.rssi,
                     activeBeaconId = activeBeacon?.beaconId,
+                    activeZoneName = activeBeacon?.zoneName,  // Nombre de la zona
                     activeBeaconProximity = activeBeacon?.proximity?.name,
                     distanceMeters = activeBeacon?.distanceMeters,
                     bluetoothEnabled = isBluetoothEnabled()
@@ -99,6 +100,7 @@ data class HomeUiState(
     val lastDetectionTime: Instant? = null,
     val lastRssi: Int? = null,
     val activeBeaconId: String? = null,
+    val activeZoneName: String? = null,  // Nombre de la zona o beacon
     val activeBeaconProximity: String? = null,
     val distanceMeters: Double? = null,
     val bluetoothEnabled: Boolean = true

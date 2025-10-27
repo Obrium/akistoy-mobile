@@ -54,6 +54,7 @@ class MarkRepositoryImpl @Inject constructor(
                     deviceId = user.deviceId,
                     userId = user.id,
                     beaconId = event.beaconId,
+                    zoneName = event.zoneName,  // Incluir nombre de zona
                     rssi = event.rssi,
                     timestamp = event.timestamp.toString(),
                     eventType = event.eventType.name.lowercase()

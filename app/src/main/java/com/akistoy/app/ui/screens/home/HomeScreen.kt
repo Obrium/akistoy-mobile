@@ -85,7 +85,7 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .padding(bottom = 16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                        containerColor = Color.White
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                 ) {
@@ -99,19 +99,24 @@ fun HomeScreen(
                             text = "ZONA DETECTADA",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = Color(0xFF616161)  // Gris oscuro
                         )
                         Spacer(modifier = Modifier.height(12.dp))
+
+                        // Mostrar el nombre de la zona de forma destacada
                         Text(
-                            text = "Beacon ID:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = state.activeBeaconId.takeLast(12).uppercase(),
+                            text = state.activeZoneName ?: "Zona Desconocida",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = Color(0xFF212121)  // Negro casi puro
+                        )
+
+                        // Mostrar el Beacon ID de forma secundaria (más pequeño)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "ID: ${state.activeBeaconId?.takeLast(12)?.uppercase() ?: "N/A"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF9E9E9E)  // Gris medio
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
@@ -122,26 +127,26 @@ fun HomeScreen(
                                 Text(
                                     text = "Distancia",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = Color(0xFF757575)  // Gris
                                 )
                                 Text(
                                     text = state.distanceMeters?.let { "%.2f m".format(it) } ?: "-- m",
                                     style = MaterialTheme.typography.headlineSmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = Color(0xFF424242)  // Gris oscuro
                                 )
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
                                     text = "Señal",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = Color(0xFF757575)  // Gris
                                 )
                                 Text(
                                     text = "${state.lastRssi ?: 0} dBm",
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = Color(0xFF424242)  // Gris oscuro
                                 )
                             }
                         }
@@ -171,10 +176,7 @@ fun HomeScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (state.isServiceRunning)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else
-                        MaterialTheme.colorScheme.errorContainer
+                    containerColor = Color.White
                 )
             ) {
                 Row(
@@ -189,9 +191,9 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
                         color = if (state.isServiceRunning)
-                            MaterialTheme.colorScheme.primary
+                            Color(0xFF4CAF50)  // Verde Material
                         else
-                            MaterialTheme.colorScheme.error
+                            Color(0xFFF44336)  // Rojo Material
                     )
                 }
             }

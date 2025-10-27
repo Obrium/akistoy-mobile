@@ -9,7 +9,8 @@ data class BeaconEvent(
     val timestamp: Instant,
     val proximity: BeaconProximity = BeaconProximity.Unknown,
     val eventType: BeaconEventType = BeaconEventType.DETECTION,
-    val distanceMeters: Double = 0.0
+    val distanceMeters: Double = 0.0,
+    val zoneName: String? = null  // Nombre de la zona o beacon para mostrar en UI y logs
 )
 
 enum class BeaconProximity {

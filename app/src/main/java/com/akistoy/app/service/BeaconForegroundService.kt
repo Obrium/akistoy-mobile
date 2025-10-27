@@ -55,18 +55,56 @@ class BeaconForegroundService : Service() {
         createNotificationChannel()
         val notification = buildNotification("Escaneando beacons...")
         startForeground(NOTIFICATION_ID, notification)
+
+        // ESTABILIDAD: Wrappear en try-catch con auto-recovery
         runningJob = scope.launch {
-            startScanningUseCase()
+            try {
+                startScanningUseCase()
+            } catch (e: Exception) {
+                android.util.Log.e("BeaconService", "Error starting scan", e)
+
+                // ESTABILIDAD: Auto-recovery después de 5 segundos
+                kotlinx.coroutines.delay(5000)
+                android.util.Log.i("BeaconService", "Attempting to restart scan...")
+
+                try {
+                    startScanningUseCase()
+                } catch (retryError: Exception) {
+                    android.util.Log.e("BeaconService", "Retry failed", retryError)
+                    updateNotification("Error en escaneo - Reintentando...")
+
+                    // Segundo retry después de 10 segundos
+                    kotlinx.coroutines.delay(10000)
+                    startScanningUseCase()
+                }
+            }
         }
     }
 
     private fun acquireWakeLock() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "Akistoy::BeaconServiceWakeLock"
-        ).apply {
-            acquire(10*60*1000L /*10 minutos*/)
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+
+            // ESTABILIDAD: Reducir timeout a 3 minutos y renovar periódicamente
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "Akistoy::BeaconServiceWakeLock"
+            ).apply {
+                acquire(3 * 60 * 1000L /*3 minutos*/)
+            }
+
+            // Renovar wake lock cada 2 minutos
+            scope.launch {
+                while (runningJob?.isActive == true) {
+                    kotlinx.coroutines.delay(2 * 60 * 1000L)
+                    if (wakeLock?.isHeld == false) {
+                        android.util.Log.w("BeaconService", "WakeLock expired, re-acquiring")
+                        wakeLock?.acquire(3 * 60 * 1000L)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("BeaconService", "Error acquiring WakeLock", e)
         }
     }
 

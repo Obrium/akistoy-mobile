@@ -62,20 +62,34 @@ private fun DetectionItem(event: BeaconEvent) {
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.width(8.dp))
+                // Mostrar nombre de zona de forma destacada
                 Text(
-                    text = event.beaconId.takeLast(12).uppercase(),
-                    style = MaterialTheme.typography.titleMedium
+                    text = event.zoneName ?: event.beaconId.takeLast(12).uppercase(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            // Mostrar el beacon ID como información secundaria solo si hay zona
+            if (event.zoneName != null) {
+                Text(
+                    text = "Beacon: ${event.beaconId.takeLast(8).uppercase()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Row {
                 Text(text = "RSSI: ${event.rssi} dBm", fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.width(16.dp))
                 Text(text = event.proximity.name)
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(text = "%.2f m".format(event.distanceMeters))
             }
+            // Mostrar fecha y hora de forma más clara
             Text(
-                text = "${timestamp.date} ${timestamp.time}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "Hora: ${timestamp.time}  •  ${timestamp.date}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Medium
             )
         }
     }
