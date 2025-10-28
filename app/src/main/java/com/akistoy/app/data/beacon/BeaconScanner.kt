@@ -163,11 +163,11 @@ class RealBeaconScanner @Inject constructor(
         callback = null
     }
 
+    @SuppressLint("MissingPermission")
     private fun parseResult(result: ScanResult): BeaconEvent? {
-        val beaconId = when {
-            result.scanRecord == null -> result.device.address ?: return null
-            else -> parseIdentifier(result)
-        }
+        // Usar MAC address como beaconId para consistencia
+        val beaconId = result.device.address ?: return null
+
         val proximity = when {
             result.rssi >= -60 -> BeaconProximity.Immediate
             result.rssi in -80..-61 -> BeaconProximity.Near
@@ -175,13 +175,20 @@ class RealBeaconScanner @Inject constructor(
             else -> BeaconProximity.Unknown
         }
         val distance = calculateDistance(result.rssi)
+
+        // Obtener el nombre del dispositivo desde múltiples fuentes
+        val deviceName = result.device?.name  // Prioridad 1: nombre del dispositivo
+            ?: result.scanRecord?.deviceName  // Prioridad 2: nombre del scan record
+            ?: null  // Si no hay nombre, será null
+
         return BeaconEvent(
             beaconId = beaconId,
             namespace = result.scanRecord?.serviceUuids?.firstOrNull()?.uuid?.toString(),
             rssi = result.rssi,
             timestamp = Clock.System.now(),
             proximity = proximity,
-            distanceMeters = distance
+            distanceMeters = distance,
+            zoneName = deviceName
         )
     }
 

@@ -26,6 +26,7 @@ import kotlin.time.Duration.Companion.seconds
 class BeaconRepositoryImpl @Inject constructor(
     private val scanner: BeaconScanner,
     private val configRepository: ConfigRepository,
+    private val trustedBeaconDao: com.akistoy.app.data.local.dao.TrustedBeaconDao,
     private val dispatchers: AppDispatchers
 ) : BeaconRepository {
 
@@ -35,6 +36,12 @@ class BeaconRepositoryImpl @Inject constructor(
 
     // Mapa de beaconId → nombre de zona
     private var beaconToZoneMap = mapOf<String, String>()
+
+    // Set de beaconIds confiables para filtrado rápido
+    private var trustedBeaconIds = emptySet<String>()
+
+    // Set de UUIDs confiables para filtrado rápido
+    private var trustedUuids = emptySet<String>()
 
     // Tracking de beacons activos con sus timeouts
     private data class BeaconState(
@@ -65,11 +72,26 @@ class BeaconRepositoryImpl @Inject constructor(
             // Cargar zonas para mapear beaconId → nombre de zona
             loadZoneMapping()
 
+            // Cargar beacons confiables
+            loadTrustedBeacons()
+
             // Comenzar a escuchar detecciones de beacons
             scanner.detections.collect { rawEvent ->
                 handleBeaconDetection(rawEvent)
             }
         }
+    }
+
+    private suspend fun loadTrustedBeacons() {
+        val beacons = trustedBeaconDao.getEnabledBeacons()
+        trustedBeaconIds = beacons.map { it.beaconId }.toSet()
+
+        // Cargar UUIDs (convertir a lowercase para comparación case-insensitive)
+        trustedUuids = beacons.mapNotNull { it.uuid?.lowercase() }.toSet()
+
+        // También actualizar el mapa de nombres
+        val additionalMappings = beacons.associate { it.beaconId to it.name }
+        beaconToZoneMap = beaconToZoneMap + additionalMappings
     }
 
     private suspend fun loadZoneMapping() {
@@ -82,11 +104,29 @@ class BeaconRepositoryImpl @Inject constructor(
     }
 
     private suspend fun handleBeaconDetection(rawEvent: BeaconEvent) {
+        // FILTRO ESTRICTO: Solo procesa beacons que estén en la lista de confiables
+        // Si la lista está vacía, NO procesa NADA
+        val hasTrustedBeacons = trustedBeaconIds.isNotEmpty() || trustedUuids.isNotEmpty()
+
+        if (!hasTrustedBeacons) {
+            // Lista vacía = no procesar ningún beacon
+            return
+        }
+
+        // Verificar si este beacon está en la lista de confiables
+        val isIdTrusted = trustedBeaconIds.contains(rawEvent.beaconId)
+        val isUuidTrusted = rawEvent.namespace?.lowercase()?.let { trustedUuids.contains(it) } ?: false
+
+        if (!isIdTrusted && !isUuidTrusted) {
+            // Beacon no está en la lista = ignorar
+            return
+        }
+
         val key = "${rawEvent.beaconId}-${rawEvent.namespace ?: ""}"
         val now = Clock.System.now()
 
         // Obtener el nombre de la zona para este beacon
-        val zoneName = beaconToZoneMap[rawEvent.beaconId] ?: rawEvent.beaconId
+        val zoneName = beaconToZoneMap[rawEvent.beaconId] ?: rawEvent.zoneName ?: rawEvent.beaconId
 
         val currentState = beaconStates[key]
 

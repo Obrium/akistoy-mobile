@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -27,8 +25,8 @@ fun DetectionList(
     detections: List<BeaconEvent>,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(modifier = modifier) {
-        items(detections) { event ->
+    Column(modifier = modifier) {
+        detections.forEach { event ->
             DetectionItem(event)
         }
     }
@@ -54,42 +52,64 @@ private fun DetectionItem(event: BeaconEvent) {
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // NOMBRE DEL DISPOSITIVO - Grande y destacado
+            Text(
+                text = event.zoneName ?: "Dispositivo desconocido",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF212121)
+            )
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // Etiqueta de evento (ENTRADA/SALIDA/DETECCIÓN)
             Row {
                 Text(
                     text = eventLabel,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = eventColor,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                // Mostrar nombre de zona de forma destacada
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // MAC Address / ID del beacon
+            Text(
+                text = "ID: ${event.beaconId.takeLast(17).uppercase()}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // Métricas (RSSI, Proximidad, Distancia)
+            Row {
                 Text(
-                    text = event.zoneName ?: event.beaconId.takeLast(12).uppercase(),
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "Señal: ${event.rssi} dBm",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = event.proximity.name,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Text(
+                    text = "%.2f m".format(event.distanceMeters),
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.SemiBold
                 )
             }
-            // Mostrar el beacon ID como información secundaria solo si hay zona
-            if (event.zoneName != null) {
-                Text(
-                    text = "Beacon: ${event.beaconId.takeLast(8).uppercase()}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Row {
-                Text(text = "RSSI: ${event.rssi} dBm", fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(text = event.proximity.name)
-                Spacer(modifier = Modifier.width(16.dp))
-                Text(text = "%.2f m".format(event.distanceMeters))
-            }
-            // Mostrar fecha y hora de forma más clara
+
+            Spacer(modifier = Modifier.width(4.dp))
+
+            // Hora de detección
             Text(
-                text = "Hora: ${timestamp.time}  •  ${timestamp.date}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium
+                text = "${timestamp.time}  •  ${timestamp.date}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

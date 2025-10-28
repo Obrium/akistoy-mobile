@@ -108,6 +108,12 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // Room Database
+    val roomVersion = "2.6.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    kapt("androidx.room:room-compiler:$roomVersion")
+
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     implementation("com.google.android.gms:play-services-location:21.3.0")

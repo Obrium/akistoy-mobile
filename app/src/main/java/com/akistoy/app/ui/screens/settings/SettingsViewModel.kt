@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.akistoy.app.data.local.dao.TrustedBeaconDao
+import com.akistoy.app.data.local.entity.TrustedBeaconEntity
 import com.akistoy.app.data.repository.UserPreferencesDataSource
 import com.akistoy.app.domain.repo.ConfigRepository
 import com.akistoy.app.domain.usecase.GetConfigUseCase
@@ -20,6 +22,7 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     private val configRepository: ConfigRepository,
     private val getConfigUseCase: GetConfigUseCase,
+    private val trustedBeaconDao: TrustedBeaconDao,
     preferences: UserPreferencesDataSource,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -39,6 +42,37 @@ class SettingsViewModel @Inject constructor(
             preferences.serviceEnabledFlow.collect { enabled ->
                 _state.value = _state.value.copy(serviceEnabled = enabled)
             }
+        }
+        viewModelScope.launch {
+            trustedBeaconDao.getAllTrustedBeacons().collect { beacons ->
+                _state.value = _state.value.copy(trustedBeacons = beacons)
+            }
+        }
+    }
+
+    fun addTrustedBeacon(beaconId: String, name: String, uuid: String?) {
+        viewModelScope.launch {
+            val beacon = TrustedBeaconEntity(
+                beaconId = beaconId,
+                name = name,
+                uuid = uuid,
+                isEnabled = true
+            )
+            trustedBeaconDao.insertBeacon(beacon)
+            _state.value = _state.value.copy(message = "Beacon agregado: $name")
+        }
+    }
+
+    fun removeTrustedBeacon(beaconId: String) {
+        viewModelScope.launch {
+            trustedBeaconDao.deleteBeaconById(beaconId)
+            _state.value = _state.value.copy(message = "Beacon eliminado")
+        }
+    }
+
+    fun toggleBeaconEnabled(beaconId: String, enabled: Boolean) {
+        viewModelScope.launch {
+            trustedBeaconDao.setBeaconEnabled(beaconId, enabled)
         }
     }
 
@@ -91,5 +125,6 @@ data class SettingsUiState(
     val isSaving: Boolean = false,
     val message: String? = null,
     val bluetoothEnabled: Boolean = true,
-    val serviceEnabled: Boolean = false
+    val serviceEnabled: Boolean = false,
+    val trustedBeacons: List<TrustedBeaconEntity> = emptyList()
 )

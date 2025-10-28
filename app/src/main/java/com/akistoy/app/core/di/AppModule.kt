@@ -3,9 +3,14 @@ package com.akistoy.app.core.di
 import com.akistoy.app.BuildConfig
 import com.akistoy.app.core.util.AppDispatchers
 import android.content.Context
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.akistoy.app.data.beacon.BeaconScanner
 import com.akistoy.app.data.beacon.RealBeaconScanner
 import com.akistoy.app.data.beacon.SimulatedBeaconScanner
+import com.akistoy.app.data.local.AkistoyDatabase
+import com.akistoy.app.data.local.dao.TrustedBeaconDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.akistoy.app.data.remote.api.AkistoyApi
 import com.akistoy.app.data.remote.interceptor.AuthInterceptor
@@ -117,8 +122,28 @@ object BeaconModule {
     ): BeaconScanner {
         // Usar scanner simulado en modo debug para pruebas
         // Cambiar a false para usar hardware BLE real
-        val useSimulation = BuildConfig.DEBUG && true  // true = beacons simulados
+        val useSimulation = BuildConfig.DEBUG && false  // false = beacons reales
         return if (useSimulation) simulatedScanner else realScanner
+    }
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object DatabaseModule {
+    @Provides
+    @Singleton
+    fun provideDatabase(@ApplicationContext context: Context): AkistoyDatabase {
+        return Room.databaseBuilder(
+            context,
+            AkistoyDatabase::class.java,
+            "akistoy_database"
+        ).build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideTrustedBeaconDao(database: AkistoyDatabase): TrustedBeaconDao {
+        return database.trustedBeaconDao()
     }
 }
 

@@ -9,7 +9,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -19,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
@@ -51,14 +57,28 @@ fun HomeRoute(
 
     HomeScreen(
         state = state,
-        onOpenSettings = onOpenSettings
+        onOpenSettings = onOpenSettings,
+        onScanDevices = viewModel::scanAllDevices,
+        onDismissDeviceList = viewModel::dismissDeviceListDialog,
+        onAddTrustedBeacon = viewModel::addToTrustedBeacons,
+        onShowTrustedBeacons = viewModel::showTrustedBeaconsDialog,
+        onDismissTrustedBeacons = viewModel::dismissTrustedBeaconsDialog,
+        onRemoveBeacon = viewModel::removeBeaconFromTrusted,
+        onToggleBeaconEnabled = viewModel::toggleBeaconEnabled
     )
 }
 
 @Composable
 fun HomeScreen(
     state: HomeUiState,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onScanDevices: () -> Unit,
+    onDismissDeviceList: () -> Unit,
+    onAddTrustedBeacon: (BleDeviceInfo) -> Unit,
+    onShowTrustedBeacons: () -> Unit,
+    onDismissTrustedBeacons: () -> Unit,
+    onRemoveBeacon: (String) -> Unit,
+    onToggleBeaconEnabled: (String, Boolean) -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(state.bluetoothEnabled) {
@@ -66,6 +86,8 @@ fun HomeScreen(
             snackbarHostState.showSnackbar("Bluetooth desactivado. Actívalo para continuar")
         }
     }
+
+    val scrollState = rememberScrollState()
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -75,6 +97,7 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(scrollState)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -199,17 +222,342 @@ fun HomeScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = onScanDevices, modifier = Modifier.fillMaxWidth()) {
+                Text(text = "🔍 Buscar beacons cercanos")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = onShowTrustedBeacons, modifier = Modifier.fillMaxWidth()) {
+                Text(text = "⭐ Gestionar beacons confiables")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-                Text(text = "Configuración")
+                Text(text = "⚙️ Configuración")
             }
             Spacer(modifier = Modifier.height(16.dp))
             DetectionList(
                 detections = state.detections,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+
+    // Diálogo para mostrar dispositivos BLE detectados
+    if (state.showDeviceListDialog) {
+        AlertDialog(
+            onDismissRequest = onDismissDeviceList,
+            title = {
+                Column {
+                    Text(text = "Dispositivos BLE Cercanos")
+                    Text(
+                        text = "Todos los dispositivos Bluetooth. Busca 'KBPro' en el nombre.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF757575)
+                    )
+                }
+            },
+            text = {
+                if (state.scannedDevices.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "🔍 Escaneando dispositivos BLE...",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Busca 'KBPro_275805' o dispositivos con UUID CABACAB0...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF757575)
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(state.scannedDevices.take(10)) { device ->  // Limitar a 10 más cercanos
+                            val isClosest = state.scannedDevices.firstOrNull() == device
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isClosest)
+                                        Color(0xFFE3F2FD)  // Azul claro para el más cercano
+                                    else
+                                        Color(0xFFF5F5F5)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    // Indicador de más cercano
+                                    if (isClosest) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "⭐ MÁS CERCANO",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1976D2)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
+
+                                    // Nombre del dispositivo (GRANDE Y DESTACADO)
+                                    val isKBPro = device.name?.contains("KBPro", ignoreCase = true) == true ||
+                                                  device.name?.contains("275805", ignoreCase = true) == true
+
+                                    Text(
+                                        text = device.name ?: "Sin nombre",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isKBPro) Color(0xFFFF6F00) else Color(0xFF212121)
+                                    )
+
+                                    if (isKBPro) {
+                                        Text(
+                                            text = "🎯 ¡ESTE PODRÍA SER TU BEACON!",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFF6F00)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // UUID (LO MÁS IMPORTANTE PARA IDENTIFICAR)
+                                    if (device.serviceUuids.isNotEmpty()) {
+                                        val isTargetUUID = device.serviceUuids.any {
+                                            it.contains("cabacab0", ignoreCase = true)
+                                        }
+
+                                        Text(
+                                            text = "🔷 UUID:",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isTargetUUID) Color(0xFFFF6F00) else Color(0xFF1976D2)
+                                        )
+                                        device.serviceUuids.forEach { uuid ->
+                                            Text(
+                                                text = uuid.uppercase(),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isTargetUUID) Color(0xFFFF6F00) else Color(0xFF0D47A1)
+                                            )
+                                        }
+                                        if (isTargetUUID) {
+                                            Text(
+                                                text = "🎯 ¡ESTE ES TU BEACON!",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFFF6F00)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    } else {
+                                        Text(
+                                            text = "⚠️ Sin UUID (no es beacon estándar)",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFFFF9800)
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+
+                                    Divider(color = Color(0xFFE0E0E0))
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Información técnica
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "📍 Distancia",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF757575)
+                                            )
+                                            val distance = when {
+                                                device.rssi >= -50 -> "< 0.5m"
+                                                device.rssi >= -60 -> "0.5-1m"
+                                                device.rssi >= -70 -> "1-3m"
+                                                device.rssi >= -80 -> "3-6m"
+                                                device.rssi >= -90 -> "6-10m"
+                                                else -> "> 10m"
+                                            }
+                                            Text(
+                                                text = distance,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF2196F3)
+                                            )
+                                        }
+                                        Column {
+                                            Text(
+                                                text = "📶 Señal",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF757575)
+                                            )
+                                            Text(
+                                                text = "${device.rssi} dBm",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF616161)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Información de debug
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = Color(0xFFFFF8E1)
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(8.dp)) {
+                                            Text(
+                                                text = "📊 Info Técnica",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = "MAC: ${device.address}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                            )
+                                            Text(
+                                                text = "RSSI: ${device.rssi} dBm",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (device.rssi >= -70) Color(0xFF4CAF50) else Color(0xFFFF9800)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = {
+                                            onAddTrustedBeacon(device)
+                                            onDismissDeviceList()
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("✓ Agregar a beacons confiables")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onDismissDeviceList) {
+                    Text("Cerrar")
+                }
+            }
+        )
+    }
+
+    // Diálogo para gestionar beacons confiables
+    if (state.showTrustedBeaconsDialog) {
+        AlertDialog(
+            onDismissRequest = onDismissTrustedBeacons,
+            title = {
+                Text(text = "Beacons Confiables")
+            },
+            text = {
+                if (state.trustedBeacons.isEmpty()) {
+                    Text(
+                        "No tienes beacons en tu lista confiable.\n\nUsa 'Buscar beacons cercanos' para agregar uno.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        items(state.trustedBeacons) { beacon ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (beacon.isEnabled)
+                                        Color(0xFFE8F5E9)  // Verde claro si está activo
+                                    else
+                                        Color(0xFFEEEEEE)  // Gris si está deshabilitado
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = beacon.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        androidx.compose.material3.Switch(
+                                            checked = beacon.isEnabled,
+                                            onCheckedChange = { enabled ->
+                                                onToggleBeaconEnabled(beacon.beaconId, enabled)
+                                            }
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "MAC: ${beacon.beaconId}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF616161)
+                                    )
+
+                                    if (beacon.uuid != null) {
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "UUID: ${beacon.uuid}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF616161)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    TextButton(
+                                        onClick = {
+                                            onRemoveBeacon(beacon.beaconId)
+                                        },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            "🗑️ Eliminar de la lista",
+                                            color = Color(0xFFD32F2F)  // Rojo
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onDismissTrustedBeacons) {
+                    Text("Cerrar")
+                }
+            }
+        )
     }
 }
 
