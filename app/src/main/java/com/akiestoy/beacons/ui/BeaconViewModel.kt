@@ -171,13 +171,21 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Aplica el filtro de búsqueda a los logs
+     * Por defecto solo muestra iBeacons, con búsqueda filtra dentro de los iBeacons
      */
     private fun applySearchFilter() {
         val query = _searchQuery.value.trim().lowercase()
+        
+        // Primero filtrar solo iBeacons
+        val onlyBeacons = _scanLogs.value.filter { log ->
+            log.iBeaconData != null
+        }
+        
+        // Luego aplicar la búsqueda si hay query
         _filteredScanLogs.value = if (query.isEmpty()) {
-            _scanLogs.value
+            onlyBeacons
         } else {
-            _scanLogs.value.filter { log ->
+            onlyBeacons.filter { log ->
                 log.deviceName.lowercase().contains(query) ||
                 log.macAddress.lowercase().contains(query) ||
                 log.iBeaconData?.uuid?.lowercase()?.contains(query) == true ||

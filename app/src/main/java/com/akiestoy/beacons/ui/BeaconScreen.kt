@@ -386,13 +386,13 @@ fun ScanLogsView(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "🔍 Logs de Escaneo BLE",
+                        text = "🎯 iBeacons Detectados",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "${scanLogs.size} dispositivos${if (searchQuery.isNotEmpty()) " (filtrados)" else " únicos"}",
+                        text = "${scanLogs.size} beacon${if (scanLogs.size != 1) "s" else ""}${if (searchQuery.isNotEmpty()) " (filtrados)" else ""}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -406,7 +406,7 @@ fun ScanLogsView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(12.dp),
-                placeholder = { Text("Buscar por nombre, MAC, UUID, Major, Minor...") },
+                placeholder = { Text("Buscar beacons por nombre, MAC, UUID, Major, Minor...") },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
