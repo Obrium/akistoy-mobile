@@ -35,6 +35,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     // Lista de logs de escaneo BLE (todos)
     private val _scanLogs = MutableStateFlow<List<BLEScanLog>>(emptyList())
+    val scanLogs: StateFlow<List<BLEScanLog>> = _scanLogs.asStateFlow()
     
     // Filtro de búsqueda
     private val _searchQuery = MutableStateFlow("")
