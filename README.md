@@ -1,102 +1,319 @@
-# Akistoy
+# AkiEstoy - Detector de Beacons ESP32
 
-Akistoy es una aplicación Android (Kotlin + Jetpack Compose) que detecta beacons BLE y envía marcajes a una API remota. El proyecto sigue MVVM + Clean Architecture con Hilt, WorkManager y coroutines/Flow.
+Aplicación Android en Kotlin para detectar y rastrear beacons iBeacon basados en ESP32.
 
-## Requisitos
+## Características
 
-- Android Studio Ladybug (o superior) con soporte para Android 15 (API 35).
-- JDK 17.
+- Detección en tiempo real de beacons iBeacon
+- Cálculo automático de distancia basado en RSSI
+- Interfaz moderna con Jetpack Compose y Material 3
+- Soporte para escaneo en segundo plano con servicio foreground
+- Mapeo de ubicaciones físicas (Baño/Sala)
+- Indicadores visuales de proximidad y calidad de señal
 
-## Configuración inicial
+## Beacons Configurados
 
-1. Clona el repositorio.
-2. Copia `.env.example` en `.env` (opcional) y ajusta:
-   ```
-   API_BASE_URL=https://api.example.com/
-   FAKE_LOGIN=true
-   ```
-3. Importa el proyecto en Android Studio. Gradle usa Kotlin DSL y Wrapper (Gradle 8.7).
+La aplicación está configurada para detectar los siguientes beacons ESP32:
 
-## Variantes de build
-
-- `debug`: apunta a `https://staging.example.com/` y deshabilita minify.
-- `release`: minify activado con reglas Proguard básicas.
-
-### API Base URL
-
-Puedes sobrescribir `BuildConfig.API_BASE_URL` modificando los campos `buildConfigField` en `app/build.gradle.kts`.
-
-## Permisos
-
-| Versión | Permisos |
-|---------|----------|
-| Android ≤ 11 | `ACCESS_FINE_LOCATION` |
-| Android 12+ | `BLUETOOTH_SCAN` (`neverForLocation`), `BLUETOOTH_CONNECT` |
-| Android 13+ | `POST_NOTIFICATIONS` |
-| Foreground Service | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `FOREGROUND_SERVICE_DATA_SYNC` |
-
-Al abrir la app se muestra una pantalla de onboarding solicitando los permisos necesarios.
-
-## Flujo principal
-
-1. **Login:** pantalla simple con captura de email. `FAKE_LOGIN=true` genera credenciales locales.
-2. **Home:** indicador visual del estado de detección, contador de eventos, lista en vivo de detecciones y botón para activar/desactivar el servicio en primer plano.
-3. **Servicio en primer plano:** mantiene el escaneo BLE activo y muestra una notificación persistente (“Akistoy activo: detectando beacons”). Se reanuda automáticamente tras reinicios mediante `BOOT_COMPLETED` y WorkManager.
-4. **Settings:** permite editar la lista de UUIDs/IDs de beacons, consultar estado de permisos/Bluetooth y forzar sincronización remota de configuración.
-5. **WorkManager:** tarea periódica (15 min, `NetworkType.CONNECTED`) que envía el buffer de detecciones almacenadas cuando hay conectividad.
-
-## BLE
-
-- `RealBeaconScanner` usa `BluetoothLeScanner` con filtros por UUID configurables desde DataStore.
-- `FakeBeaconScanner` emite detecciones simuladas para pruebas unitarias.
-- Deducción simple por ventana temporal para evitar inundar la API.
-
-## Red
-
-- Retrofit + OkHttp con interceptor de autorización (token DataStore).
-- Kotlinx Serialization para (de)serialización JSON.
-- Timeouts y logging configurados en `OkHttpClient`.
-
-## DataStore
-
-- Guarda usuario, token, deviceId, lista de UUIDs y estado del servicio en primer plano.
-
-## WorkManager
-
-- `MarkSyncWorker` se registra vía Hilt. Se puede reprogramar manualmente llamando a `MarkSyncWorker.schedule(context)`.
-
-## Servicio en primer plano
-
-- `BeaconForegroundService` gestiona `StartScanningUseCase`/`StopScanningUseCase` y muestra la notificación.
-- `ServiceController` expone métodos para iniciar/detener el servicio y guardar la preferencia del usuario.
-
-## Tests
-
-- Unit tests (`app/src/test`) para `LoginViewModel` y `StartScanningUseCase` usando Turbine/Coroutines Test.
-- Instrumented test (`app/src/androidTest`) verifica que la navegación inicia en la pantalla de login.
-
-Ejecuta pruebas:
-
-```bash
-./gradlew test        # Unit tests
-./gradlew connectedAndroidTest  # Instrumented tests (requiere dispositivo/emulador)
+### UUID Común
+```
+e2c56db5-dffb-48d2-b060-d0f5a71096e0
 ```
 
-## Optimización de batería
+### BeaconA - Baño
+- **Major:** 100
+- **Minor:** 1
+- **MAC:** 38:18:2b:b3:80:34
+- **TX Power:** -59 dBm
 
-Para asegurar funcionamiento en segundo plano, guía a los usuarios a excluir Akistoy de las optimizaciones de batería del sistema (Configuración → Batería → Optimización → Akistoy → No optimizar). No se usan APIs privadas.
+### BeaconB - Sala
+- **Major:** 101
+- **Minor:** 1
+- **MAC:** 94:54:c5:2e:94:ec
+- **TX Power:** -59 dBm
 
-## Pruebas sugeridas
+## Arquitectura
 
-| Dispositivo | Android | Resultado esperado |
-|-------------|---------|--------------------|
-| Teléfono 1  | 10      | Escaneo BLE activo y notificación presente |
-| Teléfono 2  | 12      | Solicitud de permisos Bluetooth y detección < 3s |
-| Teléfono 3  | 13      | Solicitud `POST_NOTIFICATIONS`, alerta cuando BT está OFF |
-| Teléfono 4  | 15      | Servicio en primer plano con reanudación tras reinicio |
+### Tecnologías Utilizadas
 
-## Notas
+- **Lenguaje:** Kotlin
+- **UI:** Jetpack Compose con Material 3
+- **Arquitectura:** MVVM (Model-View-ViewModel)
+- **Librería de Beacons:** AltBeacon Android Beacon Library
+- **Min SDK:** 26 (Android 8.0)
+- **Target SDK:** 35 (Android 15)
 
-- Iconografía genérica incluida (`ic_launcher`).
-- Splash screen mediante `androidx.core:splashscreen`.
-- TODOs específicos pueden añadirse según necesidades futuras (persistencia local, métricas avanzadas, etc.).
+### Estructura del Proyecto
+
+```
+app/src/main/java/com/akiestoy/beacons/
+├── model/
+│   ├── BeaconDetection.kt       # Modelo de datos de detección
+│   ├── BeaconLocation.kt        # Enum de ubicaciones (Baño/Sala)
+│   └── ProximityZone.kt         # Enum de zonas de proximidad
+├── scanner/
+│   └── BeaconScanner.kt         # Lógica de escaneo de beacons
+├── service/
+│   └── BeaconForegroundService.kt # Servicio para escaneo en segundo plano
+├── ui/
+│   ├── BeaconScreen.kt          # Pantalla principal con Compose
+│   ├── BeaconViewModel.kt       # ViewModel para manejo de estado
+│   └── theme/                   # Tema Material 3
+└── MainActivity.kt              # Activity principal con permisos
+```
+
+## Funcionalidades Principales
+
+### 1. Detección de Beacons
+
+La aplicación detecta beacons iBeacon y proporciona:
+- **UUID:** Identificador único del grupo de beacons
+- **Major/Minor:** Identificadores de ubicación específica
+- **RSSI:** Intensidad de señal recibida
+- **Distancia:** Calculada automáticamente en metros/centímetros
+- **Proximidad:** Clasificada en zonas (Muy cerca, Cerca, Lejos, Fuera de rango)
+
+### 2. Zonas de Proximidad
+
+| Zona | Distancia | Emoji | Descripción |
+|------|-----------|-------|-------------|
+| **Immediate** | < 0.5m | 🔴 | Muy cerca |
+| **Near** | 0.5m - 3m | 🟡 | Cerca |
+| **Far** | 3m - 10m | 🟢 | Lejos |
+| **Unknown** | > 10m | ⚪ | Fuera de rango |
+
+### 3. Cálculo de Distancia
+
+La distancia se calcula usando la fórmula:
+```kotlin
+distance = 10 ^ ((measuredPower - RSSI) / (10 * pathLossExponent))
+```
+
+Donde:
+- `measuredPower` = -59 dBm (TX Power del beacon)
+- `RSSI` = Intensidad de señal recibida
+- `pathLossExponent` = 2 (factor de pérdida de señal)
+
+### 4. Calidad de Señal
+
+Se calcula un porcentaje de calidad basado en el RSSI:
+```kotlin
+signalQuality = ((100 + rssi) * 100 / 60).coerceIn(0, 100)
+```
+
+## Permisos Requeridos
+
+### Android 12+ (API 31+)
+- `BLUETOOTH_SCAN`
+- `BLUETOOTH_CONNECT`
+- `ACCESS_FINE_LOCATION`
+- `ACCESS_COARSE_LOCATION`
+- `FOREGROUND_SERVICE`
+- `FOREGROUND_SERVICE_LOCATION`
+
+### Android 10-11 (API 29-30)
+- `ACCESS_FINE_LOCATION`
+- `ACCESS_COARSE_LOCATION`
+- `FOREGROUND_SERVICE`
+
+## Instalación y Configuración
+
+### Requisitos Previos
+
+1. **Android Studio** (latest version)
+2. **JDK 17**
+3. **Dispositivo Android** con Bluetooth LE (API 26+)
+
+### Pasos de Instalación
+
+1. Clona el repositorio:
+```bash
+git clone <repository-url>
+cd akiestoy-mobile
+```
+
+2. Abre el proyecto en Android Studio
+
+3. Sincroniza las dependencias de Gradle
+
+4. Conecta tu dispositivo Android o inicia un emulador
+
+5. Compila y ejecuta:
+```bash
+./gradlew assembleDebug
+./gradlew installDebug
+```
+
+### Configuración de Beacons
+
+Si deseas usar diferentes beacons, modifica los valores en:
+
+**`BeaconDetection.kt`:**
+```kotlin
+companion object {
+    const val AKIESTOY_UUID = "tu-uuid-aqui"
+}
+```
+
+**`BeaconLocation.kt`:**
+```kotlin
+enum class BeaconLocation(val major: Int, val displayName: String) {
+    TU_UBICACION_1(100, "Nombre Ubicación 1"),
+    TU_UBICACION_2(101, "Nombre Ubicación 2"),
+    // ...
+}
+```
+
+## Uso de la Aplicación
+
+### Pantalla Principal
+
+1. **Al abrir la app:** Se solicitan los permisos necesarios
+2. **Botón "Iniciar Escaneo":** Comienza la detección de beacons
+3. **Lista de Detecciones:** Muestra todos los beacons en rango con:
+   - Nombre de ubicación (Baño/Sala)
+   - Distancia estimada
+   - Indicador de proximidad
+   - Calidad de señal (%)
+   - Datos técnicos (Major, Minor, RSSI, TX Power, MAC)
+
+### Interpretación de Resultados
+
+**Indicador de Proximidad:**
+- 🔴 **Rojo (Immediate):** Estás muy cerca del beacon (< 50cm)
+- 🟡 **Amarillo (Near):** Estás cerca del beacon (0.5m - 3m)
+- 🟢 **Verde (Far):** Estás lejos del beacon (3m - 10m)
+- ⚪ **Blanco (Unknown):** Fuera de rango o señal débil
+
+**Calidad de Señal:**
+- **90-100%:** Excelente (muy cerca)
+- **70-89%:** Buena
+- **50-69%:** Regular
+- **< 50%:** Débil (lejos o con obstáculos)
+
+## Desarrollo
+
+### Dependencias Principales
+
+```kotlin
+// AltBeacon para detección de iBeacons
+implementation("org.altbeacon:android-beacon-library:2.20.6")
+
+// Jetpack Compose
+implementation(platform("androidx.compose:compose-bom:2024.11.00"))
+implementation("androidx.compose.ui:ui")
+implementation("androidx.compose.material3:material3")
+
+// Lifecycle
+implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+```
+
+### Agregar Nuevas Ubicaciones
+
+1. Actualiza `BeaconLocation.kt`:
+```kotlin
+enum class BeaconLocation(val major: Int, val displayName: String) {
+    BANO(100, "Baño"),
+    SALA(101, "Sala"),
+    COCINA(102, "Cocina"),  // Nueva ubicación
+    UNKNOWN(-1, "Desconocido")
+}
+```
+
+2. Configura tu beacon ESP32 con el Major correspondiente (102)
+
+### Personalizar Intervalos de Escaneo
+
+Edita `BeaconScanner.kt`:
+```kotlin
+// Escaneo en primer plano (ms)
+beaconManager.foregroundScanPeriod = 1100L
+beaconManager.foregroundBetweenScanPeriod = 0L
+
+// Escaneo en segundo plano (ms)
+beaconManager.backgroundScanPeriod = 1100L
+beaconManager.backgroundBetweenScanPeriod = 1100L
+```
+
+## Debugging
+
+### Ver Logs de Beacons
+
+Usa Logcat con el filtro:
+```
+tag:BeaconScanner
+```
+
+Verás mensajes como:
+```
+BeaconScanner: Detected 2 beacons
+BeaconScanner: Beacon service connected
+BeaconScanner: Started ranging beacons in region: akiestoy-beacons
+```
+
+### Verificar Detección con nRF Connect
+
+1. Instala [nRF Connect for Mobile](https://play.google.com/store/apps/details?id=no.nordicsemi.android.mcp)
+2. Escanea dispositivos BLE
+3. Busca tus beacons ESP32
+4. Verifica que transmitan el UUID correcto en "Manufacturer Data"
+
+## Solución de Problemas
+
+### No Detecta Beacons
+
+1. **Verifica permisos:** Asegúrate de otorgar todos los permisos
+2. **Bluetooth activado:** Verifica que Bluetooth esté encendido
+3. **Ubicación activada:** Android requiere ubicación para BLE
+4. **Beacons encendidos:** Verifica que los ESP32 estén alimentados
+5. **UUID correcto:** Confirma que el UUID coincida
+
+### Permisos Denegados
+
+- Android 12+: Ve a Configuración > Apps > AkiEstoy > Permisos
+- Otorga permisos de Ubicación y Bluetooth
+
+### Distancia Inexacta
+
+- La distancia es aproximada y depende de:
+  - Obstáculos físicos (paredes, muebles)
+  - Interferencias (WiFi, otros dispositivos)
+  - Orientación del dispositivo
+  - Calibración del TX Power
+
+## Roadmap
+
+- [ ] Persistencia local de detecciones (Room Database)
+- [ ] Integración con backend REST API
+- [ ] Notificaciones push basadas en proximidad
+- [ ] Modo de bajo consumo optimizado
+- [ ] Dashboard de analytics
+- [ ] Soporte para múltiples grupos de beacons
+- [ ] Exportación de datos a CSV
+
+## Contribuir
+
+1. Fork el repositorio
+2. Crea una rama para tu feature (`git checkout -b feature/nueva-funcionalidad`)
+3. Commit tus cambios (`git commit -am 'Agrega nueva funcionalidad'`)
+4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
+5. Abre un Pull Request
+
+## Licencia
+
+Este proyecto está bajo la licencia MIT.
+
+## Recursos Adicionales
+
+- [Documentación iBeacon de Apple](https://developer.apple.com/ibeacon/)
+- [AltBeacon Android Library](https://altbeacon.github.io/android-beacon-library/)
+- [Jetpack Compose](https://developer.android.com/jetpack/compose)
+- [Material Design 3](https://m3.material.io/)
+
+## Soporte
+
+Para problemas o preguntas, abre un issue en el repositorio.
+
+---
+
+**Desarrollado con ❤️ usando Kotlin y Jetpack Compose**
