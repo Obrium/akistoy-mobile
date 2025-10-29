@@ -83,10 +83,7 @@ fun FavoriteBeaconCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (beacon.iBeaconData != null)
-                MaterialTheme.colorScheme.tertiaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surface
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -103,10 +100,7 @@ fun FavoriteBeaconCard(
                     text = beacon.deviceName,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (beacon.iBeaconData != null)
-                        MaterialTheme.colorScheme.onTertiaryContainer
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))

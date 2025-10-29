@@ -427,11 +427,9 @@ fun ScanLogsView(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(scanLogs, key = { it.macAddress }) { log ->
-                    val isFavorite = viewModel.isFavorite(log.macAddress)
                     ScanLogCard(
                         log = log,
-                        isFavorite = isFavorite,
-                        onToggleFavorite = { viewModel.toggleFavorite(log.macAddress) }
+                        viewModel = viewModel
                     )
                 }
             }
@@ -442,18 +440,18 @@ fun ScanLogsView(
 @Composable
 fun ScanLogCard(
     log: com.akiestoy.beacons.model.BLEScanLog,
-    isFavorite: Boolean,
-    onToggleFavorite: () -> Unit
+    viewModel: BeaconViewModel
 ) {
+    // Observar el estado de favoritos en tiempo real
+    val favorites by viewModel.favorites.collectAsState()
+    val isFavorite = favorites.contains(log.macAddress)
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = if (log.iBeaconData != null) 
-                MaterialTheme.colorScheme.tertiaryContainer 
-            else 
-                MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
             modifier = Modifier
@@ -472,10 +470,7 @@ fun ScanLogCard(
                         text = log.deviceName,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (log.iBeaconData != null) 
-                            MaterialTheme.colorScheme.onTertiaryContainer 
-                        else 
-                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
@@ -563,7 +558,7 @@ fun ScanLogCard(
             }
             
             // Botón de favorito
-            IconButton(onClick = onToggleFavorite) {
+            IconButton(onClick = { viewModel.toggleFavorite(log.macAddress) }) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
