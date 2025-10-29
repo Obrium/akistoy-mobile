@@ -60,6 +60,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.8.4")
+
     // AltBeacon - Detección de iBeacons
     implementation("org.altbeacon:android-beacon-library:2.20.6")
 

@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import com.akiestoy.beacons.model.BeaconDetection
 import com.akiestoy.beacons.model.ProximityZone
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BeaconScreen(
     viewModel: BeaconViewModel,
@@ -36,24 +35,12 @@ fun BeaconScreen(
     val filteredScanLogs by viewModel.filteredScanLogs.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("AkiEstoy - Detector de Beacons") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
             // Estado y controles
             StatusCard(
                 uiState = uiState,
@@ -86,7 +73,6 @@ fun BeaconScreen(
             if (detections.isNotEmpty()) {
                 BeaconList(detections = detections)
             }
-        }
     }
 }
 
