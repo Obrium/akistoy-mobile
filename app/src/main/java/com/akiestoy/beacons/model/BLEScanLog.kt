@@ -16,8 +16,55 @@ data class BLEScanLog(
     val manufacturerData: Map<Int, String>,
     val serviceUuids: List<String>,
     val iBeaconData: IBeaconData? = null,
-    val rawData: String? = null
+    val rawData: String? = null,
+    val rawBytes: ByteArray? = null,
+    val advertisingFlags: Int? = null,
+    val isConnectable: Boolean? = null
 ) {
+    fun getRawBytesHex(): String? {
+        return rawBytes?.joinToString(" ") { "%02X".format(it) }
+    }
+    
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as BLEScanLog
+
+        if (timestamp != other.timestamp) return false
+        if (deviceName != other.deviceName) return false
+        if (macAddress != other.macAddress) return false
+        if (rssi != other.rssi) return false
+        if (txPower != other.txPower) return false
+        if (manufacturerData != other.manufacturerData) return false
+        if (serviceUuids != other.serviceUuids) return false
+        if (iBeaconData != other.iBeaconData) return false
+        if (rawData != other.rawData) return false
+        if (rawBytes != null) {
+            if (other.rawBytes == null) return false
+            if (!rawBytes.contentEquals(other.rawBytes)) return false
+        } else if (other.rawBytes != null) return false
+        if (advertisingFlags != other.advertisingFlags) return false
+        if (isConnectable != other.isConnectable) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        var result = timestamp.hashCode()
+        result = 31 * result + deviceName.hashCode()
+        result = 31 * result + macAddress.hashCode()
+        result = 31 * result + rssi
+        result = 31 * result + (txPower ?: 0)
+        result = 31 * result + manufacturerData.hashCode()
+        result = 31 * result + serviceUuids.hashCode()
+        result = 31 * result + (iBeaconData?.hashCode() ?: 0)
+        result = 31 * result + (rawData?.hashCode() ?: 0)
+        result = 31 * result + (rawBytes?.contentHashCode() ?: 0)
+        result = 31 * result + (advertisingFlags ?: 0)
+        result = 31 * result + (isConnectable?.hashCode() ?: 0)
+        return result
+    }
     fun getFormattedTimestamp(): String {
         val sdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
         return sdf.format(Date(timestamp))

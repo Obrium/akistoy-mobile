@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,7 +42,7 @@ fun PacketsScreen(viewModel: BeaconViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "📦 Paquetes BLE",
                     style = MaterialTheme.typography.headlineMedium,
@@ -57,19 +58,34 @@ fun PacketsScreen(viewModel: BeaconViewModel) {
                 )
             }
             
-            // Toggle para filtrar favoritos
-            FilterChip(
-                selected = showOnlyFavorites,
-                onClick = { showOnlyFavorites = !showOnlyFavorites },
-                label = { Text(if (showOnlyFavorites) "Solo Favoritos" else "Todos") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.FilterList,
-                        contentDescription = "Filtrar",
-                        modifier = Modifier.size(18.dp)
-                    )
+            // Botones de acción
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Toggle para filtrar favoritos
+                FilterChip(
+                    selected = showOnlyFavorites,
+                    onClick = { showOnlyFavorites = !showOnlyFavorites },
+                    label = { Text(if (showOnlyFavorites) "Favoritos" else "Todos") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Filtrar",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
+                
+                // Botón para limpiar logs
+                if (scanLogs.isNotEmpty()) {
+                    FilledTonalIconButton(
+                        onClick = { viewModel.clearLogs() }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Limpiar logs"
+                        )
+                    }
                 }
-            )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -173,8 +189,30 @@ fun PacketCard(
                     PacketInfoRow("RSSI", "${log.rssi} dBm")
                     log.txPower?.let { PacketInfoRow("TX Power", "$it dBm") }
                     PacketInfoRow("Timestamp", log.getFormattedTimestamp())
+                    log.isConnectable?.let { 
+                        PacketInfoRow("Conectable", if (it) "Sí ✅" else "No ❌") 
+                    }
+                    log.advertisingFlags?.let { 
+                        PacketInfoRow("Adv. Flags", "0x${it.toString(16).uppercase()}") 
+                    }
                 }
             )
+            
+            // Raw Bytes completos
+            log.getRawBytesHex()?.let { hexData ->
+                Spacer(modifier = Modifier.height(12.dp))
+                PacketInfoSection(
+                    title = "🔬 Raw Scan Record (${log.rawBytes?.size ?: 0} bytes)",
+                    content = {
+                        Text(
+                            text = hexData,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = MaterialTheme.typography.bodySmall.lineHeight
+                        )
+                    }
+                )
+            }
 
             // Manufacturer Data
             if (log.manufacturerData.isNotEmpty()) {

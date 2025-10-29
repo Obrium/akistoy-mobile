@@ -86,6 +86,15 @@ class GenericBLEScanner(context: Context) {
             // Recopilar service UUIDs
             val serviceUuidsList = scanRecord?.serviceUuids?.map { it.uuid.toString() } ?: emptyList()
 
+            // Capturar raw bytes completos del scan record
+            val rawBytes = scanRecord?.bytes
+            
+            // Capturar advertising flags
+            val advFlags = scanRecord?.advertiseFlags
+            
+            // Determinar si es conectable
+            val isConnectable = result.isConnectable
+
             // Crear el log
             val scanLog = BLEScanLog(
                 deviceName = deviceName,
@@ -94,7 +103,10 @@ class GenericBLEScanner(context: Context) {
                 txPower = scanRecord?.txPowerLevel,
                 manufacturerData = manufacturerDataMap,
                 serviceUuids = serviceUuidsList,
-                iBeaconData = iBeaconData
+                iBeaconData = iBeaconData,
+                rawBytes = rawBytes,
+                advertisingFlags = advFlags,
+                isConnectable = isConnectable
             )
 
             // Emitir el log (no bloqueante)
