@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.model.BLEScanLog
 import com.akiestoy.beacons.model.BeaconDetection
 import com.akiestoy.beacons.scanner.BeaconScanner
@@ -22,6 +23,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     private val beaconScanner = BeaconScanner(application)
     private val genericScanner = GenericBLEScanner(application)
+    private val favoritesRepository = FavoritesRepository(application)
 
     // Estado de la UI
     private val _uiState = MutableStateFlow<BeaconUiState>(BeaconUiState.Idle)
@@ -42,6 +44,13 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     private val _filteredScanLogs = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val filteredScanLogs: StateFlow<List<BLEScanLog>> = _filteredScanLogs.asStateFlow()
 
+    // Favoritos
+    val favorites: StateFlow<Set<String>> = favoritesRepository.favorites
+    
+    // Lista de beacons favoritos
+    private val _favoriteBeacons = MutableStateFlow<List<BLEScanLog>>(emptyList())
+    val favoriteBeacons: StateFlow<List<BLEScanLog>> = _favoriteBeacons.asStateFlow()
+
     // Jobs de las coroutines de escaneo
     private var scanLogsJob: Job? = null
     private var beaconScanJob: Job? = null
@@ -49,6 +58,37 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     companion object {
         private const val AUTO_STOP_DELAY_MS = 5000L // 5 segundos
+    }
+
+    init {
+        // Observar cambios en logs o favoritos para actualizar la lista de favoritos
+        viewModelScope.launch {
+            _scanLogs.collect { logs ->
+                updateFavoriteBeacons(logs)
+            }
+        }
+    }
+
+    /**
+     * Actualiza la lista de beacons favoritos
+     */
+    private fun updateFavoriteBeacons(logs: List<BLEScanLog>) {
+        _favoriteBeacons.value = favoritesRepository.getFavoriteBeacons(logs)
+    }
+
+    /**
+     * Verifica si un beacon es favorito
+     */
+    fun isFavorite(macAddress: String): Boolean {
+        return favoritesRepository.isFavorite(macAddress)
+    }
+
+    /**
+     * Alterna el estado de favorito de un beacon
+     */
+    fun toggleFavorite(macAddress: String) {
+        favoritesRepository.toggleFavorite(macAddress)
+        updateFavoriteBeacons(_scanLogs.value)
     }
 
     /**

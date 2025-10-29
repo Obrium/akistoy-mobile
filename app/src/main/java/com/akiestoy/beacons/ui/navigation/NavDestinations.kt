@@ -2,7 +2,7 @@ package com.akiestoy.beacons.ui.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
-import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -20,10 +20,10 @@ sealed class NavDestination(
         icon = Icons.AutoMirrored.Filled.BluetoothSearching
     )
 
-    data object History : NavDestination(
-        route = "history",
-        title = "Historial",
-        icon = Icons.Default.History
+    data object Favorites : NavDestination(
+        route = "favorites",
+        title = "Favoritos",
+        icon = Icons.Default.Favorite
     )
 
     data object Settings : NavDestination(
@@ -33,7 +33,7 @@ sealed class NavDestination(
     )
 
     companion object {
-        val items = listOf(Scanner, History, Settings)
+        val items = listOf(Scanner, Favorites, Settings)
     }
 }
 

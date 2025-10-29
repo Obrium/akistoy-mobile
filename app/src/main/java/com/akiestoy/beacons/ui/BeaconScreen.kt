@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
@@ -63,7 +65,8 @@ fun BeaconScreen(
                 ScanLogsView(
                     scanLogs = filteredScanLogs,
                     searchQuery = searchQuery,
-                    onSearchQueryChange = { viewModel.updateSearchQuery(it) }
+                    onSearchQueryChange = { viewModel.updateSearchQuery(it) },
+                    viewModel = viewModel
                 )
             }
 
@@ -354,7 +357,8 @@ fun SignalQualityIndicator(
 fun ScanLogsView(
     scanLogs: List<com.akiestoy.beacons.model.BLEScanLog>,
     searchQuery: String,
-    onSearchQueryChange: (String) -> Unit
+    onSearchQueryChange: (String) -> Unit,
+    viewModel: BeaconViewModel
 ) {
     Card(
         modifier = Modifier
@@ -423,7 +427,12 @@ fun ScanLogsView(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(scanLogs, key = { it.macAddress }) { log ->
-                    ScanLogCard(log = log)
+                    val isFavorite = viewModel.isFavorite(log.macAddress)
+                    ScanLogCard(
+                        log = log,
+                        isFavorite = isFavorite,
+                        onToggleFavorite = { viewModel.toggleFavorite(log.macAddress) }
+                    )
                 }
             }
         }
@@ -431,7 +440,11 @@ fun ScanLogsView(
 }
 
 @Composable
-fun ScanLogCard(log: com.akiestoy.beacons.model.BLEScanLog) {
+fun ScanLogCard(
+    log: com.akiestoy.beacons.model.BLEScanLog,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -442,13 +455,14 @@ fun ScanLogCard(log: com.akiestoy.beacons.model.BLEScanLog) {
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Timestamp y nombre
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.weight(1f)) {
+                // Timestamp y nombre
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -470,82 +484,91 @@ fun ScanLogCard(log: com.akiestoy.beacons.model.BLEScanLog) {
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // MAC y RSSI
-            Text(
-                text = "📍 ${log.macAddress}",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                text = "📶 RSSI: ${log.rssi} dBm${log.txPower?.let { " | ⚡ TX: $it dBm" } ?: ""}",
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            // Manufacturer Data
-            if (log.manufacturerData.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "📦 Manufacturer Data:",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold
-                )
-                log.manufacturerData.forEach { (id, data) ->
-                    Text(
-                        text = "  0x${id.toString(16).uppercase()}: $data",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
 
-            // Service UUIDs
-            if (log.serviceUuids.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(4.dp))
+                // MAC y RSSI
                 Text(
-                    text = "🔗 Services:",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold
+                    text = "📍 ${log.macAddress}",
+                    style = MaterialTheme.typography.bodySmall
                 )
-                log.serviceUuids.forEach { uuid ->
-                    Text(
-                        text = "  $uuid",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
+                Text(
+                    text = "📶 RSSI: ${log.rssi} dBm${log.txPower?.let { " | ⚡ TX: $it dBm" } ?: ""}",
+                    style = MaterialTheme.typography.bodySmall
+                )
 
-            // iBeacon Data (destacado)
-            log.iBeaconData?.let { ibeacon ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
+                // Manufacturer Data
+                if (log.manufacturerData.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "📦 Manufacturer Data:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    log.manufacturerData.forEach { (id, data) ->
                         Text(
-                            text = "✅ iBeacon Detectado!",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "UUID: ${ibeacon.uuid}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = "Major: ${ibeacon.major} | Minor: ${ibeacon.minor}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = "TX Power: ${ibeacon.txPower} dBm",
+                            text = "  0x${id.toString(16).uppercase()}: $data",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
+
+                // Service UUIDs
+                if (log.serviceUuids.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "🔗 Services:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    log.serviceUuids.forEach { uuid ->
+                        Text(
+                            text = "  $uuid",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+
+                // iBeacon Data (destacado)
+                log.iBeaconData?.let { ibeacon ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp)) {
+                            Text(
+                                text = "✅ iBeacon Detectado!",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "UUID: ${ibeacon.uuid}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "Major: ${ibeacon.major} | Minor: ${ibeacon.minor}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "TX Power: ${ibeacon.txPower} dBm",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            }
+            
+            // Botón de favorito
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
+                    tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                )
             }
         }
     }

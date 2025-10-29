@@ -18,7 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import com.akiestoy.beacons.ui.BeaconScreen
 import com.akiestoy.beacons.ui.BeaconViewModel
 import com.akiestoy.beacons.ui.navigation.NavDestination
-import com.akiestoy.beacons.ui.screens.HistoryScreen
+import com.akiestoy.beacons.ui.screens.FavoritesScreen
 import com.akiestoy.beacons.ui.screens.SettingsScreen
 import com.akiestoy.beacons.ui.theme.AkiEstoyTheme
 
@@ -157,8 +157,8 @@ fun MainScreen(
                     hasPermissions = hasPermissions
                 )
             }
-            composable(NavDestination.History.route) {
-                HistoryScreen()
+            composable(NavDestination.Favorites.route) {
+                FavoritesScreen(viewModel = viewModel)
             }
             composable(NavDestination.Settings.route) {
                 SettingsScreen()
