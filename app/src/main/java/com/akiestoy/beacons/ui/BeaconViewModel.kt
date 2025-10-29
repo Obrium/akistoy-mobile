@@ -33,15 +33,19 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     private val _detections = MutableStateFlow<List<BeaconDetection>>(emptyList())
     val detections: StateFlow<List<BeaconDetection>> = _detections.asStateFlow()
 
-    // Lista de logs de escaneo BLE (todos)
+    // Lista de logs de escaneo BLE (todos los paquetes)
     private val _scanLogs = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val scanLogs: StateFlow<List<BLEScanLog>> = _scanLogs.asStateFlow()
+    
+    // Lista de dispositivos únicos (solo el más reciente de cada MAC)
+    private val _uniqueDevices = MutableStateFlow<List<BLEScanLog>>(emptyList())
+    val uniqueDevices: StateFlow<List<BLEScanLog>> = _uniqueDevices.asStateFlow()
     
     // Filtro de búsqueda
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
     
-    // Lista filtrada de logs
+    // Lista filtrada de dispositivos únicos
     private val _filteredScanLogs = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val filteredScanLogs: StateFlow<List<BLEScanLog>> = _filteredScanLogs.asStateFlow()
 
@@ -62,19 +66,19 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     init {
-        // Observar cambios en logs o favoritos para actualizar la lista de favoritos
+        // Observar cambios en dispositivos únicos o favoritos para actualizar la lista de favoritos
         viewModelScope.launch {
-            _scanLogs.collect { logs ->
-                updateFavoriteBeacons(logs)
+            _uniqueDevices.collect { devices ->
+                updateFavoriteBeacons(devices)
             }
         }
     }
 
     /**
-     * Actualiza la lista de beacons favoritos
+     * Actualiza la lista de beacons favoritos (solo dispositivos únicos)
      */
-    private fun updateFavoriteBeacons(logs: List<BLEScanLog>) {
-        _favoriteBeacons.value = favoritesRepository.getFavoriteBeacons(logs)
+    private fun updateFavoriteBeacons(devices: List<BLEScanLog>) {
+        _favoriteBeacons.value = favoritesRepository.getFavoriteBeacons(devices)
     }
 
     /**
@@ -89,7 +93,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun toggleFavorite(macAddress: String) {
         favoritesRepository.toggleFavorite(macAddress)
-        updateFavoriteBeacons(_scanLogs.value)
+        updateFavoriteBeacons(_uniqueDevices.value)
     }
 
     /**
@@ -105,40 +109,42 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
         beaconScanJob?.cancel()
         autoStopJob?.cancel()
 
-        // Limpiar logs anteriores
-        _scanLogs.value = emptyList()
-        _filteredScanLogs.value = emptyList()
+        // NO limpiar logs - mantenerlos para historial continuo
+        // Los logs solo se limpian con el botón "Eliminar"
 
         // Iniciar scanner genérico para debug
         Log.d("BeaconViewModel", "Starting GENERIC BLE scanner for debugging...")
         genericScanner.startScanning()
 
-        // Recopilar logs del scanner genérico
+        // Recopilar TODOS los paquetes en tiempo real (no actualizar, sino agregar)
         scanLogsJob = viewModelScope.launch {
             genericScanner.scanLogs.collect { newLog ->
+                // 1. Agregar a todos los paquetes (para pantalla Paquetes)
                 val currentLogs = _scanLogs.value.toMutableList()
+                currentLogs.add(0, newLog)
                 
-                // Buscar si ya existe un log de este dispositivo (por MAC address)
-                val existingIndex = currentLogs.indexOfFirst { it.macAddress == newLog.macAddress }
-                
-                if (existingIndex != -1) {
-                    // Actualizar el log existente (reemplazar con los datos más recientes)
-                    currentLogs[existingIndex] = newLog
-                    Log.d("BeaconViewModel", "Device updated: ${newLog.macAddress}")
-                } else {
-                    // Agregar nuevo dispositivo al principio
-                    currentLogs.add(0, newLog)
-                    Log.d("BeaconViewModel", "New device added: ${newLog.macAddress}")
-                }
-                
-                // Limitar a 50 dispositivos únicos para mejor rendimiento
-                if (currentLogs.size > 50) {
+                // Limitar a 500 paquetes totales para mantener historial amplio
+                if (currentLogs.size > 500) {
                     currentLogs.removeAt(currentLogs.size - 1)
                 }
-                
                 _scanLogs.value = currentLogs
+                
+                // 2. Actualizar dispositivos únicos (para pantalla Scanner)
+                val currentDevices = _uniqueDevices.value.toMutableList()
+                val existingIndex = currentDevices.indexOfFirst { it.macAddress == newLog.macAddress }
+                
+                if (existingIndex >= 0) {
+                    // Actualizar dispositivo existente con el paquete más reciente
+                    currentDevices[existingIndex] = newLog
+                } else {
+                    // Agregar nuevo dispositivo al principio
+                    currentDevices.add(0, newLog)
+                }
+                
+                _uniqueDevices.value = currentDevices
                 applySearchFilter()
-                Log.d("BeaconViewModel", "Total unique devices: ${currentLogs.size}")
+                
+                Log.d("BeaconViewModel", "New packet: ${newLog.macAddress} | Total packets: ${currentLogs.size} | Unique devices: ${currentDevices.size}")
             }
         }
 
@@ -151,8 +157,8 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 .collect { beaconList ->
                     _detections.value = beaconList
-                    // Actualizar estado basado en logs detectados o beacons filtrados
-                    val totalDevices = _scanLogs.value.size
+                    // Actualizar estado basado en dispositivos únicos detectados o beacons filtrados
+                    val totalDevices = _uniqueDevices.value.size
                     _uiState.value = when {
                         beaconList.isNotEmpty() -> BeaconUiState.DetectingBeacons(beaconList.size)
                         totalDevices > 0 -> BeaconUiState.ScanningWithDevices(totalDevices)
@@ -199,6 +205,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun clearLogs() {
         _scanLogs.value = emptyList()
+        _uniqueDevices.value = emptyList()
         _filteredScanLogs.value = emptyList()
     }
 
@@ -211,14 +218,14 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Aplica el filtro de búsqueda a los logs
+     * Aplica el filtro de búsqueda a los dispositivos únicos
      * Por defecto solo muestra iBeacons, con búsqueda filtra dentro de los iBeacons
      */
     private fun applySearchFilter() {
         val query = _searchQuery.value.trim().lowercase()
         
-        // Primero filtrar solo iBeacons
-        val onlyBeacons = _scanLogs.value.filter { log ->
+        // Primero filtrar solo iBeacons de los dispositivos únicos
+        val onlyBeacons = _uniqueDevices.value.filter { log ->
             log.iBeaconData != null
         }
         

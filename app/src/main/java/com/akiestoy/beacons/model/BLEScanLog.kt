@@ -3,11 +3,13 @@ package com.akiestoy.beacons.model
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Modelo para representar un log de escaneo BLE
  */
 data class BLEScanLog(
+    val id: String = UUID.randomUUID().toString(), // ID único generado al crear el log
     val timestamp: Long = System.currentTimeMillis(),
     val deviceName: String,
     val macAddress: String,
@@ -31,39 +33,13 @@ data class BLEScanLog(
 
         other as BLEScanLog
 
-        if (timestamp != other.timestamp) return false
-        if (deviceName != other.deviceName) return false
-        if (macAddress != other.macAddress) return false
-        if (rssi != other.rssi) return false
-        if (txPower != other.txPower) return false
-        if (manufacturerData != other.manufacturerData) return false
-        if (serviceUuids != other.serviceUuids) return false
-        if (iBeaconData != other.iBeaconData) return false
-        if (rawData != other.rawData) return false
-        if (rawBytes != null) {
-            if (other.rawBytes == null) return false
-            if (!rawBytes.contentEquals(other.rawBytes)) return false
-        } else if (other.rawBytes != null) return false
-        if (advertisingFlags != other.advertisingFlags) return false
-        if (isConnectable != other.isConnectable) return false
+        if (id != other.id) return false
 
         return true
     }
 
     override fun hashCode(): Int {
-        var result = timestamp.hashCode()
-        result = 31 * result + deviceName.hashCode()
-        result = 31 * result + macAddress.hashCode()
-        result = 31 * result + rssi
-        result = 31 * result + (txPower ?: 0)
-        result = 31 * result + manufacturerData.hashCode()
-        result = 31 * result + serviceUuids.hashCode()
-        result = 31 * result + (iBeaconData?.hashCode() ?: 0)
-        result = 31 * result + (rawData?.hashCode() ?: 0)
-        result = 31 * result + (rawBytes?.contentHashCode() ?: 0)
-        result = 31 * result + (advertisingFlags ?: 0)
-        result = 31 * result + (isConnectable?.hashCode() ?: 0)
-        return result
+        return id.hashCode()
     }
     fun getFormattedTimestamp(): String {
         val sdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
