@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -33,6 +34,12 @@ sealed class NavDestination(
         icon = Icons.Default.DataObject
     )
 
+    data object Proximity : NavDestination(
+        route = "proximity",
+        title = "Proximidad",
+        icon = Icons.Default.NearMe
+    )
+
     data object Settings : NavDestination(
         route = "settings",
         title = "Ajustes",
@@ -40,7 +47,7 @@ sealed class NavDestination(
     )
 
     companion object {
-        val items = listOf(Scanner, Favorites, Packets, Settings)
+        val items = listOf(Scanner, Favorites, Packets, Proximity, Settings)
     }
 }
 

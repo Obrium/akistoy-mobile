@@ -20,6 +20,7 @@ import com.akiestoy.beacons.ui.BeaconViewModel
 import com.akiestoy.beacons.ui.navigation.NavDestination
 import com.akiestoy.beacons.ui.screens.FavoritesScreen
 import com.akiestoy.beacons.ui.screens.PacketsScreen
+import com.akiestoy.beacons.ui.screens.ProximityScreen
 import com.akiestoy.beacons.ui.screens.SettingsScreen
 import com.akiestoy.beacons.ui.theme.AkiEstoyTheme
 
@@ -163,6 +164,9 @@ fun MainScreen(
             }
             composable(NavDestination.Packets.route) {
                 PacketsScreen(viewModel = viewModel)
+            }
+            composable(NavDestination.Proximity.route) {
+                ProximityScreen()
             }
             composable(NavDestination.Settings.route) {
                 SettingsScreen()

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
@@ -21,10 +22,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.akiestoy.beacons.model.BeaconDetection
 import com.akiestoy.beacons.model.ProximityZone
+import com.akiestoy.beacons.utils.DeviceIdManager
+import android.os.Build
+import android.provider.Settings
+import android.annotation.SuppressLint
 
 @Composable
 fun BeaconScreen(
@@ -36,13 +42,15 @@ fun BeaconScreen(
     val detections by viewModel.detections.collectAsState()
     val filteredScanLogs by viewModel.filteredScanLogs.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    var showDeviceInfo by remember { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             // Estado y controles
             StatusCard(
                 uiState = uiState,
@@ -76,6 +84,22 @@ fun BeaconScreen(
             if (detections.isNotEmpty()) {
                 BeaconList(detections = detections)
             }
+        }
+
+        // Botón flotante de info del dispositivo
+        FloatingActionButton(
+            onClick = { showDeviceInfo = true },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        ) {
+            Icon(Icons.Default.Info, contentDescription = "Device Info")
+        }
+    }
+
+    // Diálogo de información del dispositivo
+    if (showDeviceInfo) {
+        DeviceInfoDialog(onDismiss = { showDeviceInfo = false })
     }
 }
 
@@ -566,5 +590,151 @@ fun ScanLogCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * Diálogo que muestra información del dispositivo móvil
+ */
+@SuppressLint("HardwareIds")
+@Composable
+fun DeviceInfoDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+
+    // Obtener información del dispositivo
+    val deviceId = DeviceIdManager.getDeviceId(context)
+    val androidId = DeviceIdManager.getAndroidId(context)
+
+    val manufacturer = Build.MANUFACTURER
+    val model = Build.MODEL
+    val device = Build.DEVICE
+    val product = Build.PRODUCT
+    val androidVersion = Build.VERSION.RELEASE
+    val sdkVersion = Build.VERSION.SDK_INT
+    val kernelVersion = System.getProperty("os.version") ?: "unknown"
+    val brand = Build.BRAND
+    val hardware = Build.HARDWARE
+    val board = Build.BOARD
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "📱 Información del Dispositivo",
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Identificación",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            DeviceInfoItem("Device ID (UUID)", deviceId)
+                            DeviceInfoItem("Android ID", androidId)
+                            DeviceInfoItem("Device", device)
+                        }
+                    }
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Dispositivo",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            DeviceInfoItem("Marca", brand)
+                            DeviceInfoItem("Fabricante", manufacturer)
+                            DeviceInfoItem("Modelo", model)
+                            DeviceInfoItem("Producto", product)
+                        }
+                    }
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            Text(
+                                text = "Sistema",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            DeviceInfoItem("Android", "$androidVersion (API $sdkVersion)")
+                            DeviceInfoItem("Kernel", kernelVersion)
+                            DeviceInfoItem("Hardware", hardware)
+                            DeviceInfoItem("Board", board)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cerrar")
+            }
+        }
+    )
+}
+
+@Composable
+fun DeviceInfoItem(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "$label:",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

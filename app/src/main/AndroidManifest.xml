@@ -14,6 +14,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
+    <!-- Permiso para comunicación con el backend -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Declarar que la app requiere Bluetooth LE -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -42,6 +46,13 @@
         <!-- Servicio en primer plano para escaneo de beacons -->
         <service
             android:name=".service.BeaconForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Servicio de proximidad con eventos enter/exit/heartbeat -->
+        <service
+            android:name=".service.ProximityForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
