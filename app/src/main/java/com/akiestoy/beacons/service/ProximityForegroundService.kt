@@ -15,9 +15,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.akiestoy.beacons.MainActivity
 import com.akiestoy.beacons.R
-import com.akiestoy.beacons.api.ProximityEventSender
-import com.akiestoy.beacons.proximity.BeaconProximityManager
+import com.akiestoy.beacons.api.ApiClient
+import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.proximity.ProximityBeaconScanner
+import com.akiestoy.beacons.tracking.BeaconTrackingService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,9 +33,9 @@ class ProximityForegroundService : Service() {
 
     private val TAG = "ProximityForegroundService"
 
-    private lateinit var proximityManager: BeaconProximityManager
+    private lateinit var trackingService: BeaconTrackingService
     private lateinit var proximityScanner: ProximityBeaconScanner
-    private lateinit var eventSender: ProximityEventSender
+    private lateinit var favoritesRepository: FavoritesRepository
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -87,10 +88,13 @@ class ProximityForegroundService : Service() {
         // Detener escaneo
         proximityScanner.stopScanning()
 
+        // Limpiar tracking service
+        trackingService.cleanup()
+
         // Cancelar coroutines
         serviceScope.cancel()
 
-        Log.d(TAG, "Final stats: ${proximityManager.getStats()}")
+        Log.d(TAG, "Final state: ${trackingService.getStateInfo()}")
 
         super.onDestroy()
     }
@@ -107,30 +111,61 @@ class ProximityForegroundService : Service() {
             "unknown-device"
         }
 
-        // Crear ProximityManager
-        proximityManager = BeaconProximityManager(deviceId)
+        // Obtener device name
+        val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
 
-        // Crear Scanner
-        proximityScanner = ProximityBeaconScanner(this, proximityManager)
+        // Crear FavoritesRepository
+        favoritesRepository = FavoritesRepository(this)
 
-        // Crear EventSender
-        eventSender = ProximityEventSender(this)
+        // Crear BeaconTrackingService con máquina de estados
+        trackingService = BeaconTrackingService(
+            api = ApiClient.proximityApi,
+            deviceId = deviceId,
+            deviceName = deviceName
+        )
 
-        // Conectar proximityManager con eventSender
+        // Crear Scanner con callback al tracking service
+        proximityScanner = ProximityBeaconScanner(
+            context = this,
+            onBeaconDetected = { macAddress, rssi ->
+                // Solo procesar si está en favoritos
+                if (favoritesRepository.isFavorite(macAddress)) {
+                    serviceScope.launch {
+                        // Enviar al tracking service
+                        // El beacon ID es el MAC, la zona también es el MAC
+                        trackingService.onBeaconDetected(
+                            beaconId = macAddress,
+                            zoneName = macAddress,
+                            rssi = rssi
+                        )
+                    }
+                }
+            },
+            isFavorite = { macAddress -> favoritesRepository.isFavorite(macAddress) }
+        )
+
+        // Log de beacons favoritos
+        val favoritesCount = favoritesRepository.favorites.value.size
+        Log.i(TAG, "📌 Monitoring $favoritesCount favorite beacon(s)")
+        if (favoritesCount > 0) {
+            favoritesRepository.favorites.value.forEach { mac ->
+                Log.d(TAG, "   └─ Favorite: $mac")
+            }
+        } else {
+            Log.w(TAG, "⚠️ No favorite beacons configured! Please add beacons to favorites first.")
+        }
+
+        // Observar cambios de estado
         serviceScope.launch {
-            proximityManager.proximityEvents.collect { event ->
-                Log.i(TAG, "📨 Proximity event received: ${event.event.uppercase()} for beacon ${event.beaconId}")
-
-                // Enviar al backend
-                eventSender.sendEvent(event, serviceScope)
-
-                // Actualizar notificación
-                updateNotification(event.event, proximityManager.getBeaconsInProximity().size)
+            trackingService.currentState.collect { state ->
+                Log.i(TAG, "🔄 State changed: $state")
+                updateNotification(state.toString(), 0)
             }
         }
 
         Log.i(TAG, "✅ All components initialized successfully")
         Log.d(TAG, "Device ID: $deviceId")
+        Log.d(TAG, "Device Name: $deviceName")
     }
 
     /**
@@ -138,7 +173,12 @@ class ProximityForegroundService : Service() {
      */
     private fun startProximityScanning() {
         try {
+            // Iniciar escaneo BLE
             proximityScanner.startScanning(serviceScope)
+
+            // Iniciar verificación de señal en tracking service
+            trackingService.startSignalCheck(serviceScope)
+
             updateNotification("Escaneando...", 0)
             Log.i(TAG, "🔍 Proximity scanning started in LOW_LATENCY mode")
         } catch (e: Exception) {

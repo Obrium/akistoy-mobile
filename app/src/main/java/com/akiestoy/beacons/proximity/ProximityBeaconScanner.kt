@@ -12,23 +12,20 @@ import android.content.Context
 import android.os.ParcelUuid
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
  * Scanner BLE en modo passive (sin conexión) con LOW_LATENCY
- * Diseñado para escanear beacons y alimentar al ProximityManager
+ * Diseñado para escanear beacons y notificar detecciones
+ * Solo procesa beacons que estén en la lista de favoritos
  */
 class ProximityBeaconScanner(
     private val context: Context,
-    private val proximityManager: BeaconProximityManager
+    private val onBeaconDetected: (macAddress: String, rssi: Int) -> Unit,
+    private val isFavorite: (String) -> Boolean
 ) {
     private val TAG = "ProximityBeaconScanner"
 
@@ -38,7 +35,6 @@ class ProximityBeaconScanner(
     private val bluetoothLeScanner: BluetoothLeScanner? = bluetoothAdapter?.bluetoothLeScanner
 
     private var scanCallback: ScanCallback? = null
-    private var timeoutCheckJob: Job? = null
 
     // Estado del scanner
     private val _isScanning = MutableStateFlow(false)
@@ -47,9 +43,6 @@ class ProximityBeaconScanner(
     companion object {
         // UUID de los beacons iBeacon (formato Apple)
         private const val IBEACON_UUID = "e2c56db5-dffb-48d2-b060-d0f5a71096e0"
-
-        // Intervalo para verificar timeouts
-        private const val TIMEOUT_CHECK_INTERVAL_MS = 2000L  // 2 segundos
     }
 
     /**
@@ -110,10 +103,6 @@ class ProximityBeaconScanner(
             bluetoothLeScanner.startScan(scanFilters, scanSettings, scanCallback)
             _isScanning.value = true
             Log.i(TAG, "✅ BLE scan started successfully")
-            Log.d(TAG, "⏱️ Starting timeout checker (interval: ${TIMEOUT_CHECK_INTERVAL_MS}ms)")
-
-            // Iniciar job para verificar timeouts periódicamente
-            startTimeoutChecker(scope)
 
         } catch (e: SecurityException) {
             Log.e(TAG, "❌ Permission denied for BLE scanning", e)
@@ -139,10 +128,6 @@ class ProximityBeaconScanner(
                 bluetoothLeScanner?.stopScan(callback)
             }
             _isScanning.value = false
-
-            // Detener job de timeout
-            timeoutCheckJob?.cancel()
-            timeoutCheckJob = null
 
             Log.i(TAG, "✅ BLE scan stopped successfully")
 
@@ -195,14 +180,14 @@ class ProximityBeaconScanner(
 
             // Verificar que sea nuestro UUID
             if (uuid.equals(IBEACON_UUID, ignoreCase = true)) {
-                Log.v(TAG, "📡 Beacon detected: MAC=$macAddress, Major=$major, Minor=$minor, RSSI=$rssi dBm")
+                // Verificar si el beacon está en favoritos
+                if (isFavorite(macAddress)) {
+                    Log.v(TAG, "📡 Beacon detected (FAVORITE): MAC=$macAddress, Major=$major, Minor=$minor, RSSI=$rssi dBm")
 
-                // Enviar al ProximityManager (usar MAC como beaconId según requerimiento)
-                scope.launch(Dispatchers.IO) {
-                    proximityManager.processBeaconDetection(
-                        beaconId = macAddress,
-                        rssi = rssi
-                    )
+                    // Notificar detección mediante callback
+                    onBeaconDetected(macAddress, rssi)
+                } else {
+                    Log.v(TAG, "⏭️ Beacon detected but NOT in favorites: MAC=$macAddress (ignored)")
                 }
             } else {
                 Log.v(TAG, "❌ Beacon with different UUID detected: $uuid (ignored)")
@@ -262,23 +247,6 @@ class ProximityBeaconScanner(
         val hex = bytes.joinToString("") { "%02x".format(it) }
         return "${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-" +
                 "${hex.substring(16, 20)}-${hex.substring(20, 32)}"
-    }
-
-    /**
-     * Inicia un job para verificar timeouts periódicamente
-     */
-    private fun startTimeoutChecker(scope: CoroutineScope) {
-        timeoutCheckJob?.cancel()
-        timeoutCheckJob = scope.launch {
-            while (isActive) {
-                delay(TIMEOUT_CHECK_INTERVAL_MS)
-                try {
-                    proximityManager.checkTimeouts()
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error checking timeouts", e)
-                }
-            }
-        }
     }
 
     /**

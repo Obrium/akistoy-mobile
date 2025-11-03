@@ -1,5 +1,6 @@
 package com.akiestoy.beacons.api
 
+import com.akiestoy.beacons.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -10,8 +11,11 @@ import java.util.concurrent.TimeUnit
  * Cliente Retrofit para comunicación con el backend
  */
 object ApiClient {
-    // URL del backend
-    private const val BASE_URL = "http://192.168.1.58:3000/"
+    // URL del backend principal (desde .env o local.properties)
+    private val BASE_URL = BuildConfig.API_BASE_URL
+
+    // URL para el servicio de registro de usuarios (desde .env o local.properties)
+    private val USER_API_URL = BuildConfig.USER_API_BASE_URL
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
@@ -31,6 +35,15 @@ object ApiClient {
         .build()
 
     val proximityApi: BeaconProximityApi = retrofit.create(BeaconProximityApi::class.java)
+
+    // Retrofit para el servicio de usuarios
+    private val userRetrofit = Retrofit.Builder()
+        .baseUrl(USER_API_URL)
+        .client(okHttpClient)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    val userApi: UserApi = userRetrofit.create(UserApi::class.java)
 
     /**
      * Permite configurar la URL base dinámicamente

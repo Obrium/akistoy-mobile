@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.service.ProximityForegroundService
 
 /**
@@ -23,8 +24,11 @@ import com.akiestoy.beacons.service.ProximityForegroundService
 @Composable
 fun ProximityScreen() {
     val context = LocalContext.current
+    val favoritesRepository = remember { FavoritesRepository(context) }
+    val favorites by favoritesRepository.favorites.collectAsState()
+
     var isServiceRunning by remember { mutableStateOf(false) }
-    var backendUrl by remember { mutableStateOf("http://tu-servidor.com/") }
+    var backendUrl by remember { mutableStateOf("http://192.168.1.58:3000/") }
     var showUrlDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -47,15 +51,51 @@ fun ProximityScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Advertencia si no hay favoritos
+            if (favorites.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "⚠️ No hay beacons favoritos",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Debes agregar beacons a favoritos antes de iniciar el servicio. Ve a la pestaña Scanner y marca beacons como favoritos.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // Estado del servicio
-            ServiceStatusCard(isRunning = isServiceRunning)
+            ServiceStatusCard(
+                isRunning = isServiceRunning,
+                favoritesCount = favorites.size
+            )
 
             // Control del servicio
             ServiceControlCard(
                 isRunning = isServiceRunning,
+                hasFavorites = favorites.isNotEmpty(),
                 onStartService = {
-                    ProximityForegroundService.startService(context)
-                    isServiceRunning = true
+                    if (favorites.isNotEmpty()) {
+                        ProximityForegroundService.startService(context)
+                        isServiceRunning = true
+                    }
                 },
                 onStopService = {
                     ProximityForegroundService.stopService(context)
@@ -88,7 +128,7 @@ fun ProximityScreen() {
 }
 
 @Composable
-fun ServiceStatusCard(isRunning: Boolean) {
+fun ServiceStatusCard(isRunning: Boolean, favoritesCount: Int) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -119,6 +159,17 @@ fun ServiceStatusCard(isRunning: Boolean) {
                 else
                     MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (favoritesCount > 0) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "📌 Monitoreando $favoritesCount beacon(s) favorito(s)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isRunning)
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -126,6 +177,7 @@ fun ServiceStatusCard(isRunning: Boolean) {
 @Composable
 fun ServiceControlCard(
     isRunning: Boolean,
+    hasFavorites: Boolean,
     onStartService: () -> Unit,
     onStopService: () -> Unit
 ) {
@@ -148,11 +200,19 @@ fun ServiceControlCard(
             if (!isRunning) {
                 Button(
                     onClick = onStartService,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = hasFavorites
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = "Iniciar")
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Iniciar Servicio")
+                }
+                if (!hasFavorites) {
+                    Text(
+                        text = "Agrega beacons a favoritos primero",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             } else {
                 Button(
@@ -229,11 +289,25 @@ fun InfoCard() {
             )
 
             InfoItem(label = "Modo de escaneo", value = "LOW_LATENCY")
-            InfoItem(label = "Umbral ENTER", value = "-65 dBm")
-            InfoItem(label = "Umbral EXIT", value = "-70 dBm")
-            InfoItem(label = "Timeout EXIT", value = "10 segundos")
-            InfoItem(label = "Intervalo Heartbeat", value = "5 segundos")
-            InfoItem(label = "Ventana promedio RSSI", value = "5 muestras")
+            InfoItem(label = "Verificación señal", value = "Cada 5 segundos")
+            InfoItem(label = "Timeout EXIT", value = "2 minutos")
+            InfoItem(label = "Intervalo Heartbeat", value = "60 segundos")
+
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+            Text(
+                text = "Estados del sistema:",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "• OUTSIDE: Fuera del recinto\n" +
+                        "• ENTERING: Detectó primer beacon\n" +
+                        "• INSIDE: Dentro del recinto (heartbeat activo)\n" +
+                        "• EXITING: Señal perdida, esperando 2min",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Divider(modifier = Modifier.padding(vertical = 8.dp))
 
@@ -243,9 +317,10 @@ fun InfoCard() {
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "• ENTER: Cuando el beacon entra en proximidad\n" +
-                        "• EXIT: Cuando sale o no se detecta por 10s\n" +
-                        "• HEARTBEAT: Cada 5s si sigue en proximidad",
+                text = "• beacon-reading: Cada detección de beacon\n" +
+                        "• IMPLICIT_ENTRY: Al confirmar entrada (2do beacon)\n" +
+                        "• IMPLICIT_EXIT: Al confirmar salida (2min sin señal)\n" +
+                        "• heartbeat: Cada 60s si está INSIDE",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
