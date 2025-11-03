@@ -33,7 +33,10 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     private val _detections = MutableStateFlow<List<BeaconDetection>>(emptyList())
     val detections: StateFlow<List<BeaconDetection>> = _detections.asStateFlow()
 
-    // Lista de logs de escaneo BLE (todos los paquetes)
+    // Lista de logs de escaneo BLE (todos los paquetes - interna)
+    private val _scanLogsInternal = MutableStateFlow<List<BLEScanLog>>(emptyList())
+    
+    // Lista de logs expuesta a la UI (actualizada cada 1 segundo)
     private val _scanLogs = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val scanLogs: StateFlow<List<BLEScanLog>> = _scanLogs.asStateFlow()
     
@@ -44,6 +47,10 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     // Filtro de búsqueda
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+    
+    // Estado del filtro de favoritos (manual)
+    private val _showOnlyFavorites = MutableStateFlow(false)
+    val showOnlyFavorites: StateFlow<Boolean> = _showOnlyFavorites.asStateFlow()
     
     // Lista filtrada de dispositivos únicos
     private val _filteredScanLogs = MutableStateFlow<List<BLEScanLog>>(emptyList())
@@ -60,6 +67,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     private var scanLogsJob: Job? = null
     private var beaconScanJob: Job? = null
     private var autoStopJob: Job? = null
+    private var filterUpdateJob: Job? = null  // Job para actualizar filtros y paquetes cada 1s
     
     // Control de logs (solo cada 5 segundos)
     private var lastLogTime = 0L
@@ -67,6 +75,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     companion object {
         private const val AUTO_STOP_DELAY_MS = 5000L // 5 segundos
         private const val LOG_INTERVAL_MS = 5000L // Intervalo entre logs
+        private const val FILTER_UPDATE_INTERVAL_MS = 1000L // Actualizar filtros cada 1 segundo
     }
 
     init {
@@ -125,15 +134,15 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
         // Recopilar TODOS los paquetes en tiempo real (no actualizar, sino agregar)
         scanLogsJob = viewModelScope.launch {
             genericScanner.scanLogs.collect { newLog ->
-                // 1. Agregar a todos los paquetes (para pantalla Paquetes)
-                val currentLogs = _scanLogs.value.toMutableList()
+                // 1. Agregar a todos los paquetes (interno)
+                val currentLogs = _scanLogsInternal.value.toMutableList()
                 currentLogs.add(0, newLog)
                 
                 // Limitar a 500 paquetes totales para mantener historial amplio
                 if (currentLogs.size > 500) {
                     currentLogs.removeAt(currentLogs.size - 1)
                 }
-                _scanLogs.value = currentLogs
+                _scanLogsInternal.value = currentLogs
                 
                 // 2. Actualizar dispositivos únicos (para pantalla Scanner)
                 val currentDevices = _uniqueDevices.value.toMutableList()
@@ -148,7 +157,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 
                 _uniqueDevices.value = currentDevices
-                applySearchFilter()
+                // NO aplicar filtro aquí - se aplica cada 0.5s en otro job
                 
                 // Log solo cada 5 segundos para no saturar la consola
                 val currentTime = System.currentTimeMillis()
@@ -156,6 +165,17 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                     Log.d("BeaconViewModel", "📊 Scan status: ${currentLogs.size} packets | ${currentDevices.size} devices | Latest: ${newLog.macAddress}")
                     lastLogTime = currentTime
                 }
+            }
+        }
+        
+        // Job separado para actualizar filtros y paquetes cada 1 segundo
+        filterUpdateJob = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(FILTER_UPDATE_INTERVAL_MS)
+                // Actualizar filtros de Scanner
+                applySearchFilter()
+                // Actualizar paquetes para pantalla Packets
+                _scanLogs.value = _scanLogsInternal.value
             }
         }
 
@@ -188,13 +208,15 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     fun stopScanning() {
         Log.d("BeaconViewModel", "Stopping scanners...")
         
-        // Cancelar las coroutines de escaneo y el timer automático
+        // Cancelar las coroutines de escaneo, el timer automático y el filtro
         scanLogsJob?.cancel()
         beaconScanJob?.cancel()
         autoStopJob?.cancel()
+        filterUpdateJob?.cancel()
         scanLogsJob = null
         beaconScanJob = null
         autoStopJob = null
+        filterUpdateJob = null
         
         // Detener los scanners
         genericScanner.stopScanning()
@@ -211,6 +233,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
      * Limpia todos los logs de escaneo
      */
     fun clearLogs() {
+        _scanLogsInternal.value = emptyList()
         _scanLogs.value = emptyList()
         _uniqueDevices.value = emptyList()
         _filteredScanLogs.value = emptyList()
@@ -221,26 +244,40 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
-        applySearchFilter()
+    }
+    
+    /**
+     * Alterna el filtro de solo favoritos
+     */
+    fun toggleFavoritesFilter() {
+        _showOnlyFavorites.value = !_showOnlyFavorites.value
+        Log.d("BeaconViewModel", "Filtro de favoritos: ${if (_showOnlyFavorites.value) "ACTIVADO" else "DESACTIVADO"}")
     }
 
     /**
      * Aplica el filtro de búsqueda a los dispositivos únicos
-     * Por defecto solo muestra iBeacons, con búsqueda filtra dentro de los iBeacons
+     * Considera: iBeacons, favoritos y búsqueda de texto
      */
     private fun applySearchFilter() {
         val query = _searchQuery.value.trim().lowercase()
+        val showOnlyFavs = _showOnlyFavorites.value
+        val favoritesMacs = favorites.value
         
-        // Primero filtrar solo iBeacons de los dispositivos únicos
-        val onlyBeacons = _uniqueDevices.value.filter { log ->
+        // 1. Empezar con solo iBeacons
+        var filtered = _uniqueDevices.value.filter { log ->
             log.iBeaconData != null
         }
         
-        // Luego aplicar la búsqueda si hay query
-        _filteredScanLogs.value = if (query.isEmpty()) {
-            onlyBeacons
-        } else {
-            onlyBeacons.filter { log ->
+        // 2. Aplicar filtro de favoritos si está activo
+        if (showOnlyFavs) {
+            filtered = filtered.filter { log ->
+                favoritesMacs.contains(log.macAddress)
+            }
+        }
+        
+        // 3. Aplicar búsqueda de texto si hay query
+        if (query.isNotEmpty()) {
+            filtered = filtered.filter { log ->
                 log.deviceName.lowercase().contains(query) ||
                 log.macAddress.lowercase().contains(query) ||
                 log.iBeaconData?.uuid?.lowercase()?.contains(query) == true ||
@@ -248,6 +285,8 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 log.iBeaconData?.minor?.toString()?.contains(query) == true
             }
         }
+        
+        _filteredScanLogs.value = filtered
     }
 
     override fun onCleared() {

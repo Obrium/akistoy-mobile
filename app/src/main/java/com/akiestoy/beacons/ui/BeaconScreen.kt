@@ -74,6 +74,8 @@ fun BeaconScreen(
                     scanLogs = filteredScanLogs,
                     searchQuery = searchQuery,
                     onSearchQueryChange = { viewModel.updateSearchQuery(it) },
+                    showOnlyFavorites = viewModel.showOnlyFavorites.collectAsState().value,
+                    onToggleFavoritesFilter = { viewModel.toggleFavoritesFilter() },
                     viewModel = viewModel
                 )
             }
@@ -382,6 +384,8 @@ fun ScanLogsView(
     scanLogs: List<com.akiestoy.beacons.model.BLEScanLog>,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
+    showOnlyFavorites: Boolean,
+    onToggleFavoritesFilter: () -> Unit,
     viewModel: BeaconViewModel
 ) {
     Card(
@@ -406,11 +410,37 @@ fun ScanLogsView(
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
-                        text = "${scanLogs.size} beacon${if (scanLogs.size != 1) "s" else ""}${if (searchQuery.isNotEmpty()) " (filtrados)" else ""}",
+                        text = "${scanLogs.size} beacon${if (scanLogs.size != 1) "s" else ""}${if (showOnlyFavorites) " ⭐ favoritos" else if (searchQuery.isNotEmpty()) " (filtrados)" else ""}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
+            }
+            
+            // Botón de filtro de favoritos
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = showOnlyFavorites,
+                    onClick = onToggleFavoritesFilter,
+                    label = { 
+                        Text(
+                            text = if (showOnlyFavorites) "Mostrando solo favoritos ⭐" else "Mostrar solo favoritos",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (showOnlyFavorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Filtro de favoritos",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                )
             }
 
             // Campo de búsqueda
