@@ -40,11 +40,11 @@ fun HomeScreen(
     // Estado para pull-to-refresh
     var isRefreshing by remember { mutableStateOf(false) }
 
-    // Estado para forzar recomposición cada 5 segundos
+    // Estado para forzar recomposición cada 2 segundos
     var updateTrigger by remember { mutableStateOf(0) }
 
     // Calcular el estado de conexión basado en el beacon más cercano
-    // Se recalcula cuando cambian los beacons o cada 5 segundos (updateTrigger)
+    // Se recalcula cuando cambian los beacons o cada 2 segundos (updateTrigger)
     val connectionState = remember(favoriteBeacons, updateTrigger) {
         calculateConnectionState(favoriteBeacons)
     }
@@ -52,16 +52,17 @@ fun HomeScreen(
     // Observar la zona actual desde el estado global
     val currentZone by AppState.currentZone.collectAsState()
 
-    // Iniciar escaneo al montar la pantalla y actualización automática cada 5 segundos
+    // Iniciar escaneo al montar la pantalla (UNA SOLA VEZ)
     LaunchedEffect(Unit) {
-        // Iniciar inmediatamente al abrir la pantalla
+        // Iniciar el escaneo una sola vez - se mantendrá activo continuamente
         beaconViewModel.startScanning()
+    }
 
-        // Loop de actualización cada 5 segundos
+    // Loop separado para actualizar la UI cada 2 segundos (sin reiniciar el escaneo)
+    LaunchedEffect(Unit) {
         while (true) {
-            delay(5000) // 5 segundos
-            beaconViewModel.startScanning() // Refrescar escaneo como en la pantalla Scanner
-            updateTrigger++ // Incrementar trigger para forzar recálculo
+            delay(2000) // 2 segundos
+            updateTrigger++ // Incrementar trigger para forzar recálculo de la UI
         }
     }
 
@@ -72,14 +73,12 @@ fun HomeScreen(
         },
         modifier = Modifier.fillMaxSize()
     ) {
-        // Efecto para manejar la actualización manual
+        // Efecto para manejar la actualización manual (solo refresca UI, no reinicia escaneo)
         LaunchedEffect(isRefreshing) {
             if (isRefreshing) {
-                // Iniciar/refrescar escaneo BLE
-                beaconViewModel.startScanning()
                 // Esperar 1 segundo para mostrar el spinner
                 delay(1000)
-                updateTrigger++ // Forzar recálculo
+                updateTrigger++ // Forzar recálculo de la UI
                 isRefreshing = false
             }
         }

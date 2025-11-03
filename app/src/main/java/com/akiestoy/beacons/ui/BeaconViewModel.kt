@@ -60,9 +60,13 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     private var scanLogsJob: Job? = null
     private var beaconScanJob: Job? = null
     private var autoStopJob: Job? = null
+    
+    // Control de logs (solo cada 5 segundos)
+    private var lastLogTime = 0L
 
     companion object {
         private const val AUTO_STOP_DELAY_MS = 5000L // 5 segundos
+        private const val LOG_INTERVAL_MS = 5000L // Intervalo entre logs
     }
 
     init {
@@ -98,9 +102,11 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Inicia el escaneo de beacons
+     * El escaneo se mantiene activo hasta que se llame a stopScanning()
      */
     fun startScanning() {
         if (beaconScanner.isScanning()) {
+            Log.d("BeaconViewModel", "Scanner already running, skipping...")
             return
         }
 
@@ -113,7 +119,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
         // Los logs solo se limpian con el botón "Eliminar"
 
         // Iniciar scanner genérico para debug
-        Log.d("BeaconViewModel", "Starting GENERIC BLE scanner for debugging...")
+        Log.d("BeaconViewModel", "Starting GENERIC BLE scanner (continuous mode)...")
         genericScanner.startScanning()
 
         // Recopilar TODOS los paquetes en tiempo real (no actualizar, sino agregar)
@@ -144,7 +150,12 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 _uniqueDevices.value = currentDevices
                 applySearchFilter()
                 
-                Log.d("BeaconViewModel", "New packet: ${newLog.macAddress} | Total packets: ${currentLogs.size} | Unique devices: ${currentDevices.size}")
+                // Log solo cada 5 segundos para no saturar la consola
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastLogTime >= LOG_INTERVAL_MS) {
+                    Log.d("BeaconViewModel", "📊 Scan status: ${currentLogs.size} packets | ${currentDevices.size} devices | Latest: ${newLog.macAddress}")
+                    lastLogTime = currentTime
+                }
             }
         }
 
@@ -167,12 +178,8 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 }
         }
 
-        // Programar detención automática después de 5 segundos
-        autoStopJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(AUTO_STOP_DELAY_MS)
-            Log.d("BeaconViewModel", "Auto-stopping scan after ${AUTO_STOP_DELAY_MS}ms")
-            stopScanning()
-        }
+        // YA NO hay detención automática - el escaneo continúa hasta que se detenga manualmente
+        Log.d("BeaconViewModel", "Scanner started in CONTINUOUS mode - will run until manually stopped")
     }
 
     /**

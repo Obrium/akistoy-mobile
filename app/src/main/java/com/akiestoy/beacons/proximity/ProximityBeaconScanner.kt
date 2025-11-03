@@ -182,15 +182,14 @@ class ProximityBeaconScanner(
             if (uuid.equals(IBEACON_UUID, ignoreCase = true)) {
                 // Verificar si el beacon está en favoritos
                 if (isFavorite(macAddress)) {
-                    Log.v(TAG, "📡 Beacon detected (FAVORITE): MAC=$macAddress, Major=$major, Minor=$minor, RSSI=$rssi dBm")
-
+                    // Solo log VERBOSE (no se muestra por defecto en logcat)
                     // Notificar detección mediante callback
                     onBeaconDetected(macAddress, rssi)
                 } else {
-                    Log.v(TAG, "⏭️ Beacon detected but NOT in favorites: MAC=$macAddress (ignored)")
+                    // Beacon no favorito - ignorar silenciosamente
                 }
             } else {
-                Log.v(TAG, "❌ Beacon with different UUID detected: $uuid (ignored)")
+                // UUID diferente - ignorar silenciosamente
             }
         }
     }

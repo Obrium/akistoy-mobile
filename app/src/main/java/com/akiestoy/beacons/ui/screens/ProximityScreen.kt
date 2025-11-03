@@ -289,7 +289,7 @@ fun InfoCard() {
             )
 
             InfoItem(label = "Modo de escaneo", value = "LOW_LATENCY")
-            InfoItem(label = "Verificación señal", value = "Cada 5 segundos")
+            InfoItem(label = "Verificación señal", value = "Cada 2 segundos")
             InfoItem(label = "Timeout EXIT", value = "2 minutos")
             InfoItem(label = "Intervalo Heartbeat", value = "60 segundos")
 

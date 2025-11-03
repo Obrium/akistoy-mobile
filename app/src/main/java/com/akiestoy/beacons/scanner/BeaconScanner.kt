@@ -98,16 +98,13 @@ class BeaconScanner(private val context: Context) : BeaconConsumer {
 
         // Configurar el notificador de ranging
         val rangeNotifier = RangeNotifier { beacons, region ->
-            Log.d(TAG, "RangeNotifier called - Beacons found: ${beacons.size} in region: ${region.uniqueId}")
+            // Log solo si hay beacons detectados
             if (beacons.isNotEmpty()) {
                 val detections = beacons.map { beacon ->
-                    Log.d(TAG, "Beacon: UUID=${beacon.id1}, Major=${beacon.id2}, Minor=${beacon.id3}, RSSI=${beacon.rssi}, Distance=${beacon.distance}m")
                     convertBeaconToDetection(beacon)
                 }
-                Log.d(TAG, "Sending ${detections.size} beacon detections to UI")
                 trySend(detections)
             } else {
-                Log.d(TAG, "No beacons in range - sending empty list")
                 trySend(emptyList())
             }
         }

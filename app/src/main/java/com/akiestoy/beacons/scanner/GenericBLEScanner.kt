@@ -27,6 +27,10 @@ class GenericBLEScanner(context: Context) {
     // Flow para emitir los logs de escaneo a la UI
     private val _scanLogs = MutableSharedFlow<BLEScanLog>(replay = 100)
     val scanLogs: SharedFlow<BLEScanLog> = _scanLogs.asSharedFlow()
+    
+    // Control de logs (solo cada 5 segundos)
+    private var lastLogTime = 0L
+    private var packetsSinceLastLog = 0
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -116,99 +120,22 @@ class GenericBLEScanner(context: Context) {
                 Log.e(TAG, "Error emitting scan log: ${e.message}")
             }
 
-            // Logging detallado especialmente para IBeacon-Sala
-            if (deviceName.contains("Sala", ignoreCase = true)) {
-                Log.d(TAG, "")
-                Log.d(TAG, "🔍 ═══════════════════════════════════════════════════════════")
-                Log.d(TAG, "🎯 BEACON IBEACON-SALA DETECTADO - ANÁLISIS COMPLETO")
-                Log.d(TAG, "═══════════════════════════════════════════════════════════")
-                Log.d(TAG, "📱 Device Info:")
-                Log.d(TAG, "   Name: $deviceName")
-                Log.d(TAG, "   Address: ${device.address}")
-                Log.d(TAG, "   RSSI: $rssi dBm")
-                Log.d(TAG, "   TX Power: ${scanRecord?.txPowerLevel}")
-                
-                // RAW BYTES COMPLETOS
-                scanRecord?.bytes?.let { bytes ->
-                    Log.d(TAG, "")
-                    Log.d(TAG, "📦 RAW SCAN RECORD (${bytes.size} bytes):")
-                    Log.d(TAG, "   HEX: ${bytes.joinToString(" ") { "%02X".format(it) }}")
-                    Log.d(TAG, "")
-                }
-                
-                // MANUFACTURER DATA DETALLADO
-                Log.d(TAG, "🏭 Manufacturer Data:")
-                if (manufacturerDataMap.isNotEmpty()) {
-                    manufacturerDataMap.forEach { (id, data) ->
-                        Log.d(TAG, "   ID: 0x${id.toString(16).uppercase().padStart(4, '0')}")
-                        Log.d(TAG, "   Data: $data")
-                        
-                        // Intentar parsear como iBeacon
-                        scanRecord?.getManufacturerSpecificData(id)?.let { rawData ->
-                            Log.d(TAG, "   Raw bytes (${rawData.size}): ${rawData.joinToString(" ") { "%02X".format(it) }}")
-                            
-                            if (rawData.size >= 23) {
-                                Log.d(TAG, "   Byte 0-1: ${"%02X %02X".format(rawData[0], rawData[1])} (iBeacon prefix)")
-                                if (rawData[0] == 0x02.toByte() && rawData[1] == 0x15.toByte()) {
-                                    Log.d(TAG, "   ✅ CONFIRMED: iBeacon format!")
-                                    
-                                    val uuid = StringBuilder()
-                                    for (i in 2..17) {
-                                        uuid.append(String.format("%02x", rawData[i]))
-                                        if (i == 5 || i == 7 || i == 9 || i == 11) uuid.append("-")
-                                    }
-                                    Log.d(TAG, "   UUID (bytes 2-17): $uuid")
-                                    
-                                    val major = ((rawData[18].toInt() and 0xFF) shl 8) or (rawData[19].toInt() and 0xFF)
-                                    Log.d(TAG, "   Major (bytes 18-19): $major (${"%04X".format(major)})")
-                                    
-                                    val minor = ((rawData[20].toInt() and 0xFF) shl 8) or (rawData[21].toInt() and 0xFF)
-                                    Log.d(TAG, "   Minor (bytes 20-21): $minor (${"%04X".format(minor)})")
-                                    
-                                    val txPower = rawData[22].toInt()
-                                    Log.d(TAG, "   TX Power (byte 22): $txPower (${"%02X".format(rawData[22])})")
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Log.d(TAG, "   (No manufacturer data)")
-                }
-                
-                // SERVICE UUIDs
-                Log.d(TAG, "")
-                Log.d(TAG, "🔗 Service UUIDs:")
-                if (serviceUuidsList.isNotEmpty()) {
-                    serviceUuidsList.forEach { uuid ->
-                        Log.d(TAG, "   $uuid")
-                    }
-                } else {
-                    Log.d(TAG, "   (No service UUIDs)")
-                }
-                
-                // iBeacon DATA PROCESADO
-                if (iBeaconData != null) {
-                    Log.d(TAG, "")
-                    Log.d(TAG, "✅ iBeacon Data (Procesado):")
-                    Log.d(TAG, "   UUID: ${iBeaconData.uuid}")
-                    Log.d(TAG, "   Major: ${iBeaconData.major}")
-                    Log.d(TAG, "   Minor: ${iBeaconData.minor}")
-                    Log.d(TAG, "   TX Power: ${iBeaconData.txPower}")
-                }
-                
-                Log.d(TAG, "═══════════════════════════════════════════════════════════")
-                Log.d(TAG, "")
-            } else {
-                // Log normal para otros dispositivos
-                Log.d(TAG, "BLE Device: $deviceName (${device.address}) RSSI: $rssi dBm")
-                if (iBeaconData != null) {
-                    Log.d(TAG, "  ✅ iBeacon: UUID=${iBeaconData.uuid}, Major=${iBeaconData.major}, Minor=${iBeaconData.minor}")
-                }
+            // Contar paquetes y log resumido cada 5 segundos
+            packetsSinceLastLog++
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastLogTime >= 5000) { // 5 segundos
+                val isBeacon = iBeaconData != null
+                Log.d(TAG, "📊 BLE scan: $packetsSinceLastLog packets in 5s | Latest: $deviceName${if (isBeacon) " ✅ iBeacon" else ""}")
+                lastLogTime = currentTime
+                packetsSinceLastLog = 0
             }
         }
 
         override fun onBatchScanResults(results: MutableList<ScanResult>) {
-            Log.d(TAG, "Batch scan results: ${results.size} devices")
+            // Log solo si hay resultados significativos
+            if (results.size > 0) {
+                Log.d(TAG, "📦 Batch scan: ${results.size} devices")
+            }
             results.forEach { result ->
                 onScanResult(ScanSettings.CALLBACK_TYPE_ALL_MATCHES, result)
             }

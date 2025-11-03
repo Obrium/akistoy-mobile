@@ -39,17 +39,23 @@ class BeaconTrackingService(
     private var exitTimerJob: Job? = null
     private var heartbeatJob: Job? = null
     private var signalCheckJob: Job? = null
+    
+    // Control de logs (solo cada 5 segundos)
+    private var lastLogTime = 0L
+    private var beaconsDetectedSinceLastLog = 0
 
     // Constantes
     companion object {
         private const val EXIT_DELAY_MS = 120_000L         // 2 minutos
         private const val HEARTBEAT_INTERVAL_MS = 60_000L  // 60 segundos
-        private const val SIGNAL_CHECK_INTERVAL_MS = 5_000L // 5 segundos
-        private const val SIGNAL_LOST_THRESHOLD_MS = 5_000L // 5 segundos sin señal
+        private const val SIGNAL_CHECK_INTERVAL_MS = 2_000L // 2 segundos - verificación de señal
+        private const val SIGNAL_LOST_THRESHOLD_MS = 5_000L // 5 segundos sin señal para considerar perdida
+        private const val LOG_INTERVAL_MS = 5000L // Intervalo entre logs (mantener cada 5s)
     }
 
     /**
      * Inicia la verificación periódica de señal
+     * Verifica cada 2 segundos si hay señal de beacons
      */
     fun startSignalCheck(scope: CoroutineScope) {
         signalCheckJob?.cancel()
@@ -59,7 +65,7 @@ class BeaconTrackingService(
                 checkBeaconSignal()
             }
         }
-        Log.i(TAG, "🔍 Signal check started (interval: ${SIGNAL_CHECK_INTERVAL_MS}ms)")
+        Log.i(TAG, "🔍 Signal check started (verificando cada ${SIGNAL_CHECK_INTERVAL_MS/1000}s)")
     }
 
     /**
@@ -79,8 +85,14 @@ class BeaconTrackingService(
         val now = System.currentTimeMillis()
         lastBeaconId = beaconId
         lastBeaconTimestamp = now
+        beaconsDetectedSinceLastLog++
 
-        Log.d(TAG, "📡 Beacon detected: $beaconId | State: ${_currentState.value} | RSSI: $rssi dBm")
+        // Log solo cada 5 segundos para no saturar la consola
+        if (now - lastLogTime >= LOG_INTERVAL_MS) {
+            Log.d(TAG, "📡 Beacon tracking: $beaconsDetectedSinceLastLog detections in 5s | State: ${_currentState.value} | Latest: $beaconId (RSSI: $rssi dBm)")
+            lastLogTime = now
+            beaconsDetectedSinceLastLog = 0
+        }
 
         // SIEMPRE enviar beacon-reading al backend
         sendBeaconReading(beaconId, zoneName, rssi, now)

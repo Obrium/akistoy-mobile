@@ -30,15 +30,21 @@ fun SettingsScreen() {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Tiempo de escaneo automático",
+                    text = "Actualización de cercanía",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "⏱️ 5 segundos",
+                    text = "⏱️ Cada 2 segundos",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Escaneo: Continuo en segundo plano",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
