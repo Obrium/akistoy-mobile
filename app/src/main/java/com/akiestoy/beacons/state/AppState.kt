@@ -17,6 +17,13 @@ object AppState {
     val currentZone: StateFlow<ZoneInfo?> = _currentZone.asStateFlow()
 
     /**
+     * Beacon seleccionado manualmente (MAC address)
+     * Cuando está establecido, este beacon tiene prioridad sobre la detección automática
+     */
+    private val _manuallySelectedBeaconMac = MutableStateFlow<String?>(null)
+    val manuallySelectedBeaconMac: StateFlow<String?> = _manuallySelectedBeaconMac.asStateFlow()
+
+    /**
      * Actualiza la zona actual basándose en el beacon más cercano
      */
     fun updateCurrentZone(zone: ZoneInfo?) {
@@ -28,6 +35,20 @@ object AppState {
      */
     fun clearCurrentZone() {
         _currentZone.value = null
+    }
+
+    /**
+     * Establece el beacon seleccionado manualmente
+     */
+    fun setManuallySelectedBeacon(macAddress: String?) {
+        _manuallySelectedBeaconMac.value = macAddress
+    }
+
+    /**
+     * Limpia la selección manual de beacon
+     */
+    fun clearManuallySelectedBeacon() {
+        _manuallySelectedBeaconMac.value = null
     }
 }
 

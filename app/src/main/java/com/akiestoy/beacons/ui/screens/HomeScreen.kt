@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -36,6 +37,9 @@ fun HomeScreen(
     val currentUser by userViewModel.currentUser.collectAsState()
     val favoriteBeacons by beaconViewModel.favoriteBeacons.collectAsState()
 
+    // Observar el estado de autenticación del super admin
+    val isSuperAdminAuthenticated by superAdminViewModel.isAuthenticated.collectAsState()
+
     // Estado para mostrar el dialog de super admin
     var showSuperAdminDialog by remember { mutableStateOf(false) }
 
@@ -45,10 +49,15 @@ fun HomeScreen(
     // Estado para forzar recomposición cada 2 segundos
     var updateTrigger by remember { mutableStateOf(0) }
 
-    // Calcular el estado de conexión basado en el beacon más cercano
-    // Se recalcula cuando cambian los beacons o cada 2 segundos (updateTrigger)
+    // Observar el beacon seleccionado manualmente
+    val manuallySelectedBeaconMac by AppState.manuallySelectedBeaconMac.collectAsState()
+
+    // Calcular el estado de conexión basado en el beacon más cercano o el seleccionado manualmente
+    // Se recalcula cuando cambian los beacons, la selección manual o cada 2 segundos (updateTrigger)
     val connectionState =
-            remember(favoriteBeacons, updateTrigger) { calculateConnectionState(favoriteBeacons) }
+            remember(favoriteBeacons, manuallySelectedBeaconMac, updateTrigger) { 
+                calculateConnectionState(favoriteBeacons, manuallySelectedBeaconMac) 
+            }
 
     // Observar la zona actual desde el estado global
     val currentZone by AppState.currentZone.collectAsState()
@@ -76,6 +85,7 @@ fun HomeScreen(
                     if (success) {
                         showSuperAdminDialog = false
                     }
+                    success // Retornar el resultado
                 }
         )
     }
@@ -232,14 +242,30 @@ fun HomeScreen(
             }
         }
 
-        // Botón de tuerca en la esquina superior derecha
+        // Botón en la esquina superior derecha
         IconButton(
-                onClick = { showSuperAdminDialog = true },
+                onClick = {
+                    if (isSuperAdminAuthenticated) {
+                        // Si está autenticado, cerrar sesión
+                        superAdminViewModel.logout()
+                    } else {
+                        // Si no está autenticado, mostrar dialog de login
+                        showSuperAdminDialog = true
+                    }
+                },
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
         ) {
             Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Super Admin",
+                    imageVector = if (isSuperAdminAuthenticated) {
+                        Icons.AutoMirrored.Filled.Logout
+                    } else {
+                        Icons.Default.Settings
+                    },
+                    contentDescription = if (isSuperAdminAuthenticated) {
+                        "Cerrar sesión"
+                    } else {
+                        "Super Admin"
+                    },
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(32.dp)
             )
@@ -255,10 +281,13 @@ data class ConnectionState(
 )
 
 /**
- * Calcula el estado de conexión basado en el beacon más cercano (mejor RSSI) También actualiza el
- * estado global de la zona actual
+ * Calcula el estado de conexión basado en el beacon seleccionado manualmente o el más cercano
+ * También actualiza el estado global de la zona actual
  */
-private fun calculateConnectionState(favoriteBeacons: List<BLEScanLog>): ConnectionState {
+private fun calculateConnectionState(
+    favoriteBeacons: List<BLEScanLog>,
+    manuallySelectedBeaconMac: String?
+): ConnectionState {
     if (favoriteBeacons.isEmpty()) {
         AppState.clearCurrentZone()
         return ConnectionState(isActive = false)
@@ -274,25 +303,31 @@ private fun calculateConnectionState(favoriteBeacons: List<BLEScanLog>): Connect
         return ConnectionState(isActive = false)
     }
 
-    // Encontrar el beacon más cercano (mejor RSSI - más cercano a 0)
-    // El RSSI es negativo, así que el más grande (menos negativo) es el más cercano
-    val closestBeacon = recentBeacons.maxByOrNull { it.rssi }
+    // Si hay un beacon seleccionado manualmente, usarlo (si está disponible en los recientes)
+    val selectedBeacon = if (manuallySelectedBeaconMac != null) {
+        recentBeacons.find { it.macAddress == manuallySelectedBeaconMac }
+    } else {
+        null
+    }
 
-    return if (closestBeacon != null) {
+    // Si no hay beacon manual o no está disponible, encontrar el más cercano
+    val activeBeacon = selectedBeacon ?: recentBeacons.maxByOrNull { it.rssi }
+
+    return if (activeBeacon != null) {
         // Actualizar el estado global con la zona actual
         val beaconName =
-                closestBeacon.deviceName.takeIf { it.isNotEmpty() } ?: closestBeacon.macAddress
+                activeBeacon.deviceName.takeIf { it.isNotEmpty() } ?: activeBeacon.macAddress
 
         AppState.updateCurrentZone(
                 ZoneInfo(
                         beaconName = beaconName,
-                        beaconMac = closestBeacon.macAddress,
-                        rssi = closestBeacon.rssi,
-                        timestamp = closestBeacon.timestamp
+                        beaconMac = activeBeacon.macAddress,
+                        rssi = activeBeacon.rssi,
+                        timestamp = activeBeacon.timestamp
                 )
         )
 
-        ConnectionState(isActive = true, activeBeaconName = beaconName, rssi = closestBeacon.rssi)
+        ConnectionState(isActive = true, activeBeaconName = beaconName, rssi = activeBeacon.rssi)
     } else {
         AppState.clearCurrentZone()
         ConnectionState(isActive = false)

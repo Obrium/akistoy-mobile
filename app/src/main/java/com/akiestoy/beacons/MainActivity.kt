@@ -24,12 +24,14 @@ import com.akiestoy.beacons.ui.components.UserRegistrationDialog
 import com.akiestoy.beacons.ui.navigation.NavDestination
 import com.akiestoy.beacons.ui.screens.AddBeaconsScreen
 import com.akiestoy.beacons.ui.screens.ConfigurationScreen
+import com.akiestoy.beacons.ui.screens.ConnectManualScreen
 import com.akiestoy.beacons.ui.screens.FavoritesScreen
 import com.akiestoy.beacons.ui.screens.HomeScreen
 import com.akiestoy.beacons.ui.screens.LinkedBeaconsScreen
 import com.akiestoy.beacons.ui.screens.PacketsScreen
 import com.akiestoy.beacons.ui.screens.ProximityScreen
 import com.akiestoy.beacons.ui.screens.SettingsScreen
+import com.akiestoy.beacons.ui.screens.UpdateWorkerScreen
 import com.akiestoy.beacons.ui.theme.AkiEstoyTheme
 import com.akiestoy.beacons.viewmodel.RegistrationState
 import com.akiestoy.beacons.viewmodel.SuperAdminViewModel
@@ -175,31 +177,39 @@ fun MainScreen(
 
     Scaffold(
             bottomBar = {
-                NavigationBar {
-                    // Obtener items dinámicamente según autenticación de super admin
-                    NavDestination.getItems(isSuperAdminAuthenticated).forEach { destination ->
-                        NavigationBarItem(
-                                icon = {
-                                    Icon(
-                                            imageVector = destination.icon,
-                                            contentDescription = destination.title
-                                    )
-                                },
-                                label = { Text(destination.title) },
-                                selected = currentRoute == destination.route,
-                                onClick = {
-                                    navController.navigate(destination.route) {
-                                        popUpTo(navController.graph.startDestinationId) {
-                                            saveState = true
+                // Solo mostrar el bottom navigation bar cuando el super admin esté autenticado
+                if (isSuperAdminAuthenticated) {
+                    NavigationBar {
+                        // Obtener items dinámicamente según autenticación de super admin
+                        val navItems = remember(isSuperAdminAuthenticated) {
+                            NavDestination.getItems(isSuperAdminAuthenticated)
+                        }
+
+                        navItems.forEach { destination ->
+                            NavigationBarItem(
+                                    icon = {
+                                        Icon(
+                                                imageVector = destination.icon,
+                                                contentDescription = destination.title
+                                        )
+                                    },
+                                    label = { Text(destination.title) },
+                                    selected = currentRoute == destination.route,
+                                    onClick = {
+                                        navController.navigate(destination.route) {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
                                         }
-                                        launchSingleTop = true
-                                        restoreState = true
                                     }
-                                }
-                        )
+                            )
+                        }
                     }
                 }
-            }
+            },
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { paddingValues ->
         NavHost(
                 navController = navController,
@@ -233,6 +243,20 @@ fun MainScreen(
                         },
                         onNavigateToAddBeacons = {
                             navController.navigate(NavDestination.AddBeacons.route)
+                        },
+                        onNavigateToConnectManual = {
+                            navController.navigate(NavDestination.ConnectManual.route)
+                        },
+                        onNavigateToUpdateWorker = {
+                            navController.navigate(NavDestination.UpdateWorker.route)
+                        },
+                        onNavigateToHome = {
+                            navController.navigate(NavDestination.Home.route) {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    inclusive = false
+                                }
+                                launchSingleTop = true
+                            }
                         }
                 )
             }
@@ -245,6 +269,18 @@ fun MainScreen(
             composable(NavDestination.AddBeacons.route) {
                 AddBeaconsScreen(
                         beaconViewModel = viewModel,
+                        onNavigateBack = { navController.popBackStack() }
+                )
+            }
+            composable(NavDestination.ConnectManual.route) {
+                ConnectManualScreen(
+                        beaconViewModel = viewModel,
+                        onNavigateBack = { navController.popBackStack() }
+                )
+            }
+            composable(NavDestination.UpdateWorker.route) {
+                UpdateWorkerScreen(
+                        userViewModel = userRegistrationViewModel,
                         onNavigateBack = { navController.popBackStack() }
                 )
             }

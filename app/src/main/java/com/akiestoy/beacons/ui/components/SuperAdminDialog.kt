@@ -20,11 +20,12 @@ import androidx.compose.ui.window.Dialog
 @Composable
 fun SuperAdminDialog(
     onDismiss: () -> Unit,
-    onLogin: (username: String, password: String) -> Unit
+    onLogin: (username: String, password: String) -> Boolean
 ) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
     
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -105,19 +106,33 @@ fun SuperAdminDialog(
                         if (username.isBlank() || password.isBlank()) {
                             errorMessage = "Por favor complete todos los campos"
                         } else {
-                            onLogin(username, password)
-                            // El diálogo se cerrará desde el componente padre si el login es exitoso
+                            isLoading = true
+                            val success = onLogin(username, password)
+                            isLoading = false
+
+                            if (!success) {
+                                errorMessage = "Usuario o contraseña incorrectos"
+                            }
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Text(
-                        text = "Iniciar sesión",
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Text(
+                            text = "Iniciar sesión",
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
                 }
             }
         }

@@ -7,7 +7,9 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.NearMe
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -38,7 +40,7 @@ sealed class NavDestination(val route: String, val title: String, val icon: Imag
             NavDestination(
                     route = "configuration",
                     title = "Configuración",
-                    icon = Icons.Default.AdminPanelSettings
+                    icon = Icons.Default.Settings
             )
 
     data object LinkedBeacons :
@@ -48,26 +50,37 @@ sealed class NavDestination(val route: String, val title: String, val icon: Imag
                     icon = Icons.Default.Favorite
             )
 
-    data object AddBeacons :
-            NavDestination(
-                    route = "add_beacons",
-                    title = "Agregar Beacons",
-                    icon = Icons.Default.Add
-            )
+     data object AddBeacons :
+             NavDestination(
+                     route = "add_beacons",
+                     title = "Agregar Beacons",
+                     icon = Icons.Default.Add
+             )
 
-    companion object {
-        // Items base sin Settings (oculto) y sin Configuration (solo para super admin)
-        private val baseItems = listOf(Home, Scanner, Proximity)
+     data object ConnectManual :
+             NavDestination(
+                     route = "connect_manual",
+                     title = "Conectar Manual",
+                     icon = Icons.Default.Link
+             )
 
+     data object UpdateWorker :
+             NavDestination(
+                     route = "update_worker",
+                     title = "Cambiar Trabajador",
+                     icon = Icons.Default.Person
+             )
+
+     companion object {
         /**
          * Retorna los items de navegación según el estado de autenticación del super admin
          * @param isSuperAdminAuthenticated true si el super admin está autenticado
          */
         fun getItems(isSuperAdminAuthenticated: Boolean): List<NavDestination> {
             return if (isSuperAdminAuthenticated) {
-                baseItems + Configuration
+                listOf(Home, Configuration)
             } else {
-                baseItems
+                listOf(Home)
             }
         }
     }

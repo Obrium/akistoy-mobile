@@ -22,7 +22,10 @@ fun ConfigurationScreen(
         superAdminViewModel: SuperAdminViewModel,
         beaconViewModel: BeaconViewModel,
         onNavigateToLinkedBeacons: () -> Unit,
-        onNavigateToAddBeacons: () -> Unit
+        onNavigateToAddBeacons: () -> Unit,
+        onNavigateToConnectManual: () -> Unit,
+        onNavigateToUpdateWorker: () -> Unit,
+        onNavigateToHome: () -> Unit
 ) {
     Column(
             modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
@@ -52,18 +55,21 @@ fun ConfigurationScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Botón: Cambiar nombre y rut
-        ConfigurationButton(text = "Cambiar nombre y rut", onClick = { /* TODO: Implementar */})
+        ConfigurationButton(text = "Cambiar nombre y rut", onClick = onNavigateToUpdateWorker)
 
         Spacer(modifier = Modifier.height(16.dp))
 
         // Botón: Conectar manual
-        ConfigurationButton(text = "Conectar manual", onClick = { /* TODO: Implementar */})
+        ConfigurationButton(text = "Conectar manual", onClick = onNavigateToConnectManual)
 
         Spacer(modifier = Modifier.height(48.dp))
 
         // Botón para cerrar sesión
         Button(
-                onClick = { superAdminViewModel.logout() },
+                onClick = {
+                    superAdminViewModel.logout()
+                    onNavigateToHome()
+                },
                 colors =
                         ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.error

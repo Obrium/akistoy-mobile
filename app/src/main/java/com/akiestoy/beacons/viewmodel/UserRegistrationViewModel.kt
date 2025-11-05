@@ -121,4 +121,51 @@ class UserRegistrationViewModel(
             _rutError.value = null
         }
     }
+
+    /**
+     * Actualiza el nombre y RUT del usuario actual
+     */
+    fun updateUser(name: String, rut: String) {
+        viewModelScope.launch {
+            _registrationState.value = RegistrationState.Loading
+            try {
+                val currentUser = _currentUser.value
+                if (currentUser == null) {
+                    _registrationState.value = RegistrationState.Error("No hay usuario actual")
+                    return@launch
+                }
+
+                val cleanRut = RutValidator.cleanRut(rut)
+                
+                // Validar RUT si es diferente al actual
+                if (cleanRut != currentUser.rut) {
+                    if (!RutValidator.isValidFormat(cleanRut)) {
+                        _registrationState.value = RegistrationState.Error("Formato de RUT inválido")
+                        return@launch
+                    }
+                    if (!RutValidator.isValid(cleanRut)) {
+                        _registrationState.value = RegistrationState.Error("RUT inválido (verificador incorrecto)")
+                        return@launch
+                    }
+                }
+
+                // Crear usuario actualizado
+                val updatedUser = currentUser.copy(
+                    name = name.trim(),
+                    rut = cleanRut
+                )
+
+                // Guardar en base de datos
+                userRepository.saveUser(updatedUser)
+                
+                _registrationState.value = RegistrationState.Success
+                Log.d("UserRegistrationVM", "Usuario actualizado exitosamente: ${updatedUser.name}")
+            } catch (e: Exception) {
+                Log.e("UserRegistrationVM", "Error al actualizar usuario", e)
+                _registrationState.value = RegistrationState.Error(
+                    e.message ?: "Error desconocido al actualizar usuario"
+                )
+            }
+        }
+    }
 }

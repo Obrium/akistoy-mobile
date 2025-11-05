@@ -35,8 +35,8 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     // Lista de logs de escaneo BLE (todos los paquetes - interna)
     private val _scanLogsInternal = MutableStateFlow<List<BLEScanLog>>(emptyList())
-    
-    // Lista de logs expuesta a la UI (actualizada cada 1 segundo)
+
+    // Lista de logs expuesta a la UI (actualizada cada 2 segundos)
     private val _scanLogs = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val scanLogs: StateFlow<List<BLEScanLog>> = _scanLogs.asStateFlow()
     
@@ -75,7 +75,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     companion object {
         private const val AUTO_STOP_DELAY_MS = 5000L // 5 segundos
         private const val LOG_INTERVAL_MS = 5000L // Intervalo entre logs
-        private const val FILTER_UPDATE_INTERVAL_MS = 1000L // Actualizar filtros cada 1 segundo
+        private const val FILTER_UPDATE_INTERVAL_MS = 2000L // Actualizar filtros cada 2 segundos
     }
 
     init {
@@ -157,7 +157,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 
                 _uniqueDevices.value = currentDevices
-                // NO aplicar filtro aquí - se aplica cada 0.5s en otro job
+                // NO aplicar filtro aquí - se aplica cada 2s en otro job
                 
                 // Log solo cada 5 segundos para no saturar la consola
                 val currentTime = System.currentTimeMillis()
@@ -168,7 +168,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
         
-        // Job separado para actualizar filtros y paquetes cada 1 segundo
+        // Job separado para actualizar filtros y paquetes cada 2 segundos
         filterUpdateJob = viewModelScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(FILTER_UPDATE_INTERVAL_MS)
