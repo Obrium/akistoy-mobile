@@ -54,8 +54,8 @@ fun ConfigurationScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Botón: Cambiar nombre y rut
-        ConfigurationButton(text = "Cambiar nombre y rut", onClick = onNavigateToUpdateWorker)
+        // Botón: Actualizar trabajador
+        ConfigurationButton(text = "Actualizar trabajador", onClick = onNavigateToUpdateWorker)
 
         Spacer(modifier = Modifier.height(16.dp))
 

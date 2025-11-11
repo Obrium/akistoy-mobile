@@ -49,6 +49,14 @@ class FavoritesRepository(context: Context) {
         saveFavorites(currentFavorites)
         _favorites.value = currentFavorites
     }
+
+    /**
+     * Limpia todos los beacons favoritos
+     */
+    fun clearFavorites() {
+        saveFavorites(emptySet())
+        _favorites.value = emptySet()
+    }
     
     private fun saveFavorites(favorites: Set<String>) {
         prefs.edit().putStringSet(KEY_FAVORITES, favorites).apply()

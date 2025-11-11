@@ -22,8 +22,8 @@ fun SuperAdminDialog(
     onDismiss: () -> Unit,
     onLogin: (username: String, password: String) -> Boolean
 ) {
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("benja") }
+    var password by remember { mutableStateOf("123") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     

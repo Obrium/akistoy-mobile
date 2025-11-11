@@ -177,9 +177,9 @@ class UserRegistrationViewModel(
     }
 
     /**
-     * Actualiza el nombre y RUT del usuario actual
+     * Actualiza el nombre, email y estado del empleado actual
      */
-    fun updateUser(name: String, rut: String) {
+    fun updateEmployee(name: String, email: String, active: Boolean) {
         viewModelScope.launch {
             _registrationState.value = RegistrationState.Loading
             try {
@@ -189,37 +189,66 @@ class UserRegistrationViewModel(
                     return@launch
                 }
 
-                val cleanRut = RutValidator.cleanRut(rut)
-                
-                // Validar RUT si es diferente al actual
-                if (cleanRut != currentUser.rut) {
-                    if (!RutValidator.isValidFormat(cleanRut)) {
-                        _registrationState.value = RegistrationState.Error("Formato de RUT inválido")
-                        return@launch
-                    }
-                    // Validar dígito verificador solo si está habilitado
-                    if (VALIDATE_RUT_VERIFIER && !RutValidator.isValid(cleanRut)) {
-                        _registrationState.value = RegistrationState.Error("RUT inválido (verificador incorrecto)")
-                        return@launch
-                    }
+                // Validar campos
+                if (name.isBlank()) {
+                    _registrationState.value = RegistrationState.Error("El nombre no puede estar vacío")
+                    return@launch
                 }
 
-                // Crear usuario actualizado
-                val updatedUser = currentUser.copy(
+                if (email.isBlank()) {
+                    _registrationState.value = RegistrationState.Error("El email no puede estar vacío")
+                    return@launch
+                }
+
+                // Validar formato de email
+                if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                    _registrationState.value = RegistrationState.Error("Formato de email inválido")
+                    return@launch
+                }
+
+                Log.d("UserRegistrationVM", "Actualizando empleado: ${currentUser.id}")
+
+                // Llamar al API para actualizar
+                val result = userRepository.updateEmployee(
+                    employeeId = currentUser.id,
                     name = name.trim(),
-                    rut = cleanRut
+                    email = email.trim(),
+                    active = active,
+                    consentTracking = currentUser.consentTracking
                 )
 
-                // Guardar en base de datos
-                userRepository.saveUser(updatedUser)
-                
-                _registrationState.value = RegistrationState.Success
-                Log.d("UserRegistrationVM", "Usuario actualizado exitosamente: ${updatedUser.name}")
+                if (result.first) {
+                    _registrationState.value = RegistrationState.Success
+                    Log.d("UserRegistrationVM", "Empleado actualizado exitosamente")
+                } else {
+                    _registrationState.value = RegistrationState.Error(
+                        result.second.ifEmpty { "Error al actualizar empleado" }
+                    )
+                }
             } catch (e: Exception) {
-                Log.e("UserRegistrationVM", "Error al actualizar usuario", e)
+                Log.e("UserRegistrationVM", "Error al actualizar empleado", e)
                 _registrationState.value = RegistrationState.Error(
-                    e.message ?: "Error desconocido al actualizar usuario"
+                    e.message ?: "Error desconocido al actualizar empleado"
                 )
+            }
+        }
+    }
+
+    /**
+     * Refresca las zonas desde el servidor
+     */
+    fun refreshZones() {
+        viewModelScope.launch {
+            try {
+                Log.d("UserRegistrationVM", "🔄 Iniciando refresco de zonas...")
+                val result = userRepository.refreshZones()
+                if (result.first) {
+                    Log.d("UserRegistrationVM", "✅ Zonas refrescadas exitosamente")
+                } else {
+                    Log.w("UserRegistrationVM", "⚠️ Error al refrescar zonas: ${result.second}")
+                }
+            } catch (e: Exception) {
+                Log.e("UserRegistrationVM", "❌ Excepción al refrescar zonas", e)
             }
         }
     }

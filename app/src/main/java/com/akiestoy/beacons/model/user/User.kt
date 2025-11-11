@@ -18,6 +18,7 @@ data class User(
     val email: String,
     val phone: String = "",
     val companyId: String,
+    val companyRut: String = "", // RUT de la empresa para re-login
     val tenantId: String,
     val active: Boolean = true,
     val consentTracking: Boolean = true,

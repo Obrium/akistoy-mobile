@@ -13,12 +13,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.akiestoy.beacons.ui.components.RutVisualTransformation
-import com.akiestoy.beacons.utils.RutValidator
 import com.akiestoy.beacons.viewmodel.RegistrationState
 import com.akiestoy.beacons.viewmodel.UserRegistrationViewModel
 
-/** Pantalla para actualizar nombre y RUT del trabajador */
+/** Pantalla para actualizar datos del trabajador */
 @Composable
 fun UpdateWorkerScreen(
     userViewModel: UserRegistrationViewModel,
@@ -29,15 +27,16 @@ fun UpdateWorkerScreen(
     
     // Estados locales para los campos
     var name by remember { mutableStateOf(currentUser?.name ?: "") }
-    var rut by remember { mutableStateOf(currentUser?.rut ?: "") }
-    var nameError by remember { mutableStateOf<String?>(null) }
-    var rutError by remember { mutableStateOf<String?>(null) }
+    var email by remember { mutableStateOf(currentUser?.email ?: "") }
+    var active by remember { mutableStateOf(currentUser?.active ?: true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     
     // Actualizar campos cuando cambia el usuario
     LaunchedEffect(currentUser) {
         currentUser?.let {
             name = it.name
-            rut = it.rut
+            email = it.email
+            active = it.active
         }
     }
     
@@ -49,14 +48,11 @@ fun UpdateWorkerScreen(
                 userViewModel.resetRegistrationState()
             }
             is RegistrationState.Error -> {
-                val message = (registrationState as RegistrationState.Error).message
-                if (message.contains("RUT", ignoreCase = true)) {
-                    rutError = message
-                } else {
-                    nameError = message
-                }
+                errorMessage = (registrationState as RegistrationState.Error).message
             }
-            else -> {}
+            else -> {
+                errorMessage = null
+            }
         }
     }
 
@@ -71,7 +67,7 @@ fun UpdateWorkerScreen(
         
         // Título
         Text(
-            text = "Trabajador",
+            text = "Actualizar trabajador",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
@@ -84,15 +80,12 @@ fun UpdateWorkerScreen(
             value = name,
             onValueChange = { 
                 name = it
-                nameError = null
+                errorMessage = null
             },
             label = { Text("Nombre") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
-            isError = nameError != null,
-            supportingText = if (nameError != null) {
-                { Text(nameError!!, color = MaterialTheme.colorScheme.error) }
-            } else null,
+            isError = errorMessage?.contains("nombre", ignoreCase = true) == true,
             shape = RoundedCornerShape(8.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -102,25 +95,18 @@ fun UpdateWorkerScreen(
         
         Spacer(modifier = Modifier.height(16.dp))
         
-        // Campo de RUT
+        // Campo de Email
         OutlinedTextField(
-            value = rut,
-            onValueChange = { newValue ->
-                val cleaned = RutValidator.cleanRut(newValue)
-                if (cleaned.length <= 9) {
-                    rut = cleaned
-                    rutError = null
-                }
+            value = email,
+            onValueChange = { 
+                email = it
+                errorMessage = null
             },
-            label = { Text("Rut") },
+            label = { Text("Email") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
-            visualTransformation = RutVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            isError = rutError != null,
-            supportingText = if (rutError != null) {
-                { Text(rutError!!, color = MaterialTheme.colorScheme.error) }
-            } else null,
+            isError = errorMessage?.contains("email", ignoreCase = true) == true,
             shape = RoundedCornerShape(8.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -128,37 +114,44 @@ fun UpdateWorkerScreen(
             )
         )
         
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        // Switch de Activo
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Trabajador activo",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Switch(
+                checked = active,
+                onCheckedChange = { active = it }
+            )
+        }
+        
+        // Mensaje de error
+        if (errorMessage != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = errorMessage!!,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        
         Spacer(modifier = Modifier.height(32.dp))
         
         // Botón Actualizar
         Button(
             onClick = {
-                // Validaciones locales
-                nameError = null
-                rutError = null
-                
-                if (name.isBlank()) {
-                    nameError = "El nombre no puede estar vacío"
-                    return@Button
-                }
-                
-                if (rut.isBlank()) {
-                    rutError = "El RUT no puede estar vacío"
-                    return@Button
-                }
-                
-                if (!RutValidator.isValidFormat(rut)) {
-                    rutError = "Formato de RUT inválido"
-                    return@Button
-                }
-                
-                if (!RutValidator.isValid(rut)) {
-                    rutError = "RUT inválido (verificador incorrecto)"
-                    return@Button
-                }
-                
-                // Actualizar usuario
-                userViewModel.updateUser(name, rut)
+                errorMessage = null
+                userViewModel.updateEmployee(name, email, active)
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = registrationState !is RegistrationState.Loading,

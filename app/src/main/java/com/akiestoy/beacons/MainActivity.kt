@@ -228,6 +228,14 @@ fun MainScreen(
         }
     }
 
+    // Refrescar zonas cada vez que se abre la app y hay sesión iniciada
+    LaunchedEffect(currentUser) {
+        if (currentUser != null) {
+            android.util.Log.i("MainActivity", "🔄 Usuario autenticado detectado, refrescando zonas...")
+            userRegistrationViewModel.refreshZones()
+        }
+    }
+
     Scaffold(
             bottomBar = {
                 // Solo mostrar el bottom navigation bar cuando el super admin esté autenticado
