@@ -2,6 +2,7 @@ package com.akiestoy.beacons.tracking
 
 import android.util.Log
 import com.akiestoy.beacons.api.BeaconProximityApi
+import com.akiestoy.beacons.config.AppConfig
 import com.akiestoy.beacons.model.proximity.BeaconProximityRequest
 import com.akiestoy.beacons.model.tracking.BeaconState
 import com.akiestoy.beacons.model.tracking.HeartbeatRequest
@@ -17,12 +18,13 @@ import kotlinx.coroutines.launch
 
 /**
  * Servicio de tracking de beacons con máquina de estados
- * Implementa lógica de entrada/salida implícita
+ * Implementa lógica de entrada/salida implícita + batching de eventos
  */
 class BeaconTrackingService(
     private val api: BeaconProximityApi,
     private val deviceId: String,
     private val deviceName: String,
+    private val eventBatcher: EventBatcher,
     private val tenantId: String = "550e8400-e29b-41d4-a716-446655440000" // Empresa ID por defecto
 ) {
     private val TAG = "BeaconTrackingService"
@@ -39,23 +41,23 @@ class BeaconTrackingService(
     private var exitTimerJob: Job? = null
     private var heartbeatJob: Job? = null
     private var signalCheckJob: Job? = null
-    
+
     // Control de logs (solo cada 5 segundos)
     private var lastLogTime = 0L
     private var beaconsDetectedSinceLastLog = 0
 
-    // Constantes
+    // Constantes (ahora usando AppConfig)
     companion object {
-        private const val EXIT_DELAY_MS = 120_000L         // 2 minutos
-        private const val HEARTBEAT_INTERVAL_MS = 60_000L  // 60 segundos
-        private const val SIGNAL_CHECK_INTERVAL_MS = 2_000L // 2 segundos - verificación de señal
-        private const val SIGNAL_LOST_THRESHOLD_MS = 5_000L // 5 segundos sin señal para considerar perdida
-        private const val LOG_INTERVAL_MS = 5000L // Intervalo entre logs (mantener cada 5s)
+        private val EXIT_DELAY_MS = AppConfig.EXIT_DELAY_MS
+        private val HEARTBEAT_INTERVAL_MS = AppConfig.HEARTBEAT_INTERVAL_MS
+        private val SIGNAL_CHECK_INTERVAL_MS = AppConfig.SCAN_INTERVAL_MS // Usa variable de entorno
+        private val SIGNAL_LOST_THRESHOLD_MS = AppConfig.SIGNAL_LOST_THRESHOLD_MS
+        private val LOG_INTERVAL_MS = AppConfig.LOG_INTERVAL_MS
     }
 
     /**
-     * Inicia la verificación periódica de señal
-     * Verifica cada 2 segundos si hay señal de beacons
+     * Inicia la verificación periódica de señal y el batching de eventos
+     * Verifica cada X segundos si hay señal de beacons (configurado en .env)
      */
     fun startSignalCheck(scope: CoroutineScope) {
         signalCheckJob?.cancel()
@@ -66,14 +68,18 @@ class BeaconTrackingService(
             }
         }
         Log.i(TAG, "🔍 Signal check started (verificando cada ${SIGNAL_CHECK_INTERVAL_MS/1000}s)")
+
+        // Iniciar event batcher
+        eventBatcher.start(scope)
     }
 
     /**
-     * Detiene la verificación de señal
+     * Detiene la verificación de señal y el batching
      */
     fun stopSignalCheck() {
         signalCheckJob?.cancel()
         signalCheckJob = null
+        eventBatcher.stop()
         Log.i(TAG, "🛑 Signal check stopped")
     }
 
@@ -220,16 +226,12 @@ class BeaconTrackingService(
                 rssi = rssi
             )
 
-            Log.d(TAG, "📤 Sending beacon-reading to backend")
-            val response = api.sendProximityEvent(request)
+            // Usar batching en lugar de enviar inmediatamente
+            eventBatcher.queueEvent(request)
+            Log.v(TAG, "📥 Beacon reading queued for batch sending")
 
-            if (response.isSuccessful) {
-                Log.v(TAG, "✅ Beacon reading sent successfully")
-            } else {
-                Log.e(TAG, "❌ Error sending beacon reading: ${response.code()} - ${response.message()}")
-            }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Exception sending beacon reading: ${e.message}", e)
+            Log.e(TAG, "❌ Exception queueing beacon reading: ${e.message}", e)
         }
     }
 

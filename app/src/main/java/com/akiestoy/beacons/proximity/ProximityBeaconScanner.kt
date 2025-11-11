@@ -65,12 +65,12 @@ class ProximityBeaconScanner(
             return
         }
 
-        Log.i(TAG, "🔍 Starting BLE scanning in LOW_LATENCY mode...")
+        Log.i(TAG, "🔍 Starting BLE scanning in BALANCED mode...")
         Log.d(TAG, "📍 Looking for iBeacon UUID: $IBEACON_UUID")
 
-        // Configurar ScanSettings para LOW_LATENCY (máxima frecuencia de escaneo)
+        // Configurar ScanSettings para BALANCED (balance entre batería y rendimiento)
         val scanSettings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)  // Escaneo agresivo
+            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)  // Escaneo balanceado - ahorra ~60% batería
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)

@@ -252,16 +252,14 @@ private fun NearbyBeaconCard(
                 // ID (usando formato de iBeacon si está disponible)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "ID:",
+                        text = "MAC:",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                         color = Color.Black
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = beacon.iBeaconData?.let {
-                            "${it.uuid.takeLast(8)}-${it.major}-${it.minor}"
-                        } ?: beacon.macAddress,
+                        text = beacon.macAddress,
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.Black
                     )

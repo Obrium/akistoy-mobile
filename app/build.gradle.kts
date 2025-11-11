@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,6 +20,16 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Load from secrets.properties
+        val secretsFile = rootProject.file("secrets.properties")
+        val secretsProperties = Properties()
+        if (secretsFile.exists()) {
+            secretsProperties.load(secretsFile.inputStream())
+        }
+
+        buildConfigField("String", "SCAN_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("SCAN_INTERVAL_SECONDS", "2")}\"")
+        buildConfigField("String", "EVENT_BATCH_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("EVENT_BATCH_INTERVAL_SECONDS", "15")}\"")
     }
 
     buildTypes {

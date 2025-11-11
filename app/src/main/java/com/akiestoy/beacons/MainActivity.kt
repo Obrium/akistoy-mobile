@@ -37,6 +37,7 @@ import com.akiestoy.beacons.viewmodel.RegistrationState
 import com.akiestoy.beacons.viewmodel.SuperAdminViewModel
 import com.akiestoy.beacons.viewmodel.UserRegistrationViewModel
 import com.akiestoy.beacons.viewmodel.UserRegistrationViewModelFactory
+import com.akiestoy.beacons.service.ProximityForegroundService
 
 class MainActivity : ComponentActivity() {
 
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
 
     // ViewModel de registro de usuario
     private lateinit var userRegistrationViewModel: UserRegistrationViewModel
+    private lateinit var zoneViewModel: com.akiestoy.beacons.viewmodel.ZoneViewModel
 
     // ViewModel de Super Admin
     private val superAdminViewModel: SuperAdminViewModel by viewModels()
@@ -54,25 +56,52 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher =
             registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
                     permissions ->
+                android.util.Log.i("MainActivity", "🔐 Permission result received")
+                permissions.forEach { (permission, granted) ->
+                    android.util.Log.d("MainActivity", "   └─ $permission: $granted")
+                }
+
                 val allGranted = permissions.values.all { it }
                 hasPermissions = allGranted
-                // No iniciar automáticamente - dejar que el usuario presione el botón
+                android.util.Log.i("MainActivity", "🔐 All permissions granted: $allGranted")
+
+                // Iniciar servicio en segundo plano si se otorgaron los permisos
+                if (allGranted) {
+                    android.util.Log.i("MainActivity", "✅ Starting background service from permission callback...")
+                    startBackgroundService()
+                } else {
+                    android.util.Log.w("MainActivity", "❌ Not all permissions granted, service not started")
+                }
             }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.i("MainActivity", "📱 onCreate called")
 
         // Inicializar base de datos y repositorio
         val database = AppDatabase.getDatabase(applicationContext)
-        val userRepository = UserRepository(database.userDao())
+        val favoritesRepository = com.akiestoy.beacons.data.FavoritesRepository(applicationContext)
+        val userRepository = UserRepository(
+            database.userDao(),
+            database.zoneDao(),
+            com.akiestoy.beacons.api.ApiClient.authApi,
+            com.akiestoy.beacons.api.ApiClient.zonesApi,
+            favoritesRepository
+        )
 
         // Inicializar ViewModel de registro
         userRegistrationViewModel =
                 ViewModelProvider(this, UserRegistrationViewModelFactory(userRepository))[
                         UserRegistrationViewModel::class.java]
 
+        // Inicializar ViewModel de zonas
+        zoneViewModel =
+                ViewModelProvider(this, com.akiestoy.beacons.viewmodel.ZoneViewModelFactory(database.zoneDao()))[
+                        com.akiestoy.beacons.viewmodel.ZoneViewModel::class.java]
+
         // Verificar permisos iniciales
         hasPermissions = checkPermissions()
+        android.util.Log.i("MainActivity", "🔐 Permissions check: hasPermissions = $hasPermissions")
 
         setContent {
             AkiEstoyTheme {
@@ -80,6 +109,7 @@ class MainActivity : ComponentActivity() {
                         viewModel = viewModel,
                         userRegistrationViewModel = userRegistrationViewModel,
                         superAdminViewModel = superAdminViewModel,
+                        zoneViewModel = zoneViewModel,
                         hasPermissions = hasPermissions,
                         onRequestPermissions = { requestPermissions() }
                 )
@@ -88,7 +118,24 @@ class MainActivity : ComponentActivity() {
 
         // Solicitar permisos automáticamente al inicio si no los tiene
         if (!hasPermissions) {
+            android.util.Log.w("MainActivity", "⚠️ Permissions not granted, requesting...")
             requestPermissions()
+        } else {
+            android.util.Log.i("MainActivity", "✅ Permissions already granted, starting service...")
+            // Si ya tiene permisos, iniciar servicio inmediatamente
+            startBackgroundService()
+        }
+    }
+
+    /**
+     * Inicia el servicio en segundo plano para escaneo continuo de beacons
+     */
+    private fun startBackgroundService() {
+        try {
+            ProximityForegroundService.startService(this)
+            android.util.Log.i("MainActivity", "🚀 ProximityForegroundService started automatically")
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "❌ Error starting ProximityForegroundService", e)
         }
     }
 
@@ -141,6 +188,7 @@ fun MainScreen(
         viewModel: BeaconViewModel,
         userRegistrationViewModel: UserRegistrationViewModel,
         superAdminViewModel: SuperAdminViewModel,
+        zoneViewModel: com.akiestoy.beacons.viewmodel.ZoneViewModel,
         hasPermissions: Boolean,
         onRequestPermissions: () -> Unit
 ) {
@@ -152,6 +200,8 @@ fun MainScreen(
     val currentUser by userRegistrationViewModel.currentUser.collectAsState()
     val rutInput by userRegistrationViewModel.rutInput.collectAsState()
     val rutError by userRegistrationViewModel.rutError.collectAsState()
+    val rutEmpresaInput by userRegistrationViewModel.rutEmpresaInput.collectAsState()
+    val rutEmpresaError by userRegistrationViewModel.rutEmpresaError.collectAsState()
     val registrationState by userRegistrationViewModel.registrationState.collectAsState()
 
     // Observar el estado de autenticación del super admin
@@ -162,8 +212,11 @@ fun MainScreen(
         UserRegistrationDialog(
                 rutInput = rutInput,
                 rutError = rutError,
+                rutEmpresaInput = rutEmpresaInput,
+                rutEmpresaError = rutEmpresaError,
                 registrationState = registrationState,
                 onRutChange = { userRegistrationViewModel.updateRutInput(it) },
+                onRutEmpresaChange = { userRegistrationViewModel.updateRutEmpresaInput(it) },
                 onRegisterClick = { userRegistrationViewModel.validateAndRegister() }
         )
     }
@@ -263,6 +316,7 @@ fun MainScreen(
             composable(NavDestination.LinkedBeacons.route) {
                 LinkedBeaconsScreen(
                         beaconViewModel = viewModel,
+                        zoneViewModel = zoneViewModel,
                         onNavigateBack = { navController.popBackStack() }
                 )
             }

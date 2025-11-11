@@ -16,9 +16,11 @@ import androidx.core.app.NotificationCompat
 import com.akiestoy.beacons.MainActivity
 import com.akiestoy.beacons.R
 import com.akiestoy.beacons.api.ApiClient
+import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.proximity.ProximityBeaconScanner
 import com.akiestoy.beacons.tracking.BeaconTrackingService
+import com.akiestoy.beacons.tracking.EventBatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -117,11 +119,22 @@ class ProximityForegroundService : Service() {
         // Crear FavoritesRepository
         favoritesRepository = FavoritesRepository(this)
 
+        // Obtener base de datos y DAO
+        val database = AppDatabase.getDatabase(this)
+        val pendingEventDao = database.pendingEventDao()
+
+        // Crear EventBatcher con cola offline
+        val eventBatcher = EventBatcher(
+            api = ApiClient.proximityApi,
+            pendingEventDao = pendingEventDao
+        )
+
         // Crear BeaconTrackingService con máquina de estados
         trackingService = BeaconTrackingService(
             api = ApiClient.proximityApi,
             deviceId = deviceId,
-            deviceName = deviceName
+            deviceName = deviceName,
+            eventBatcher = eventBatcher
         )
 
         // Crear Scanner con callback al tracking service
@@ -180,7 +193,7 @@ class ProximityForegroundService : Service() {
             trackingService.startSignalCheck(serviceScope)
 
             updateNotification("Escaneando...", 0)
-            Log.i(TAG, "🔍 Proximity scanning started in LOW_LATENCY mode")
+            Log.i(TAG, "🔍 Proximity scanning started in BALANCED mode")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error starting proximity scanning", e)
         }

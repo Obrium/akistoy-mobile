@@ -39,6 +39,16 @@ class FavoritesRepository(context: Context) {
         saveFavorites(currentFavorites)
         _favorites.value = currentFavorites
     }
+
+    /**
+     * Añade múltiples beacons como favoritos sin remover los existentes
+     */
+    fun addFavorites(macAddresses: List<String>) {
+        val currentFavorites = _favorites.value.toMutableSet()
+        currentFavorites.addAll(macAddresses)
+        saveFavorites(currentFavorites)
+        _favorites.value = currentFavorites
+    }
     
     private fun saveFavorites(favorites: Set<String>) {
         prefs.edit().putStringSet(KEY_FAVORITES, favorites).apply()

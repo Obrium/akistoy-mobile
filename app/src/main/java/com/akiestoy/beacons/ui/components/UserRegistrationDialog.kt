@@ -22,8 +22,11 @@ import com.akiestoy.beacons.viewmodel.RegistrationState
 fun UserRegistrationDialog(
     rutInput: String,
     rutError: String?,
+    rutEmpresaInput: String,
+    rutEmpresaError: String?,
     registrationState: RegistrationState,
     onRutChange: (String) -> Unit,
+    onRutEmpresaChange: (String) -> Unit,
     onRegisterClick: () -> Unit
 ) {
     // Dialog que no se puede descartar
@@ -55,7 +58,7 @@ fun UserRegistrationDialog(
                 )
 
                 Text(
-                    text = "Para comenzar, ingresa tu RUT",
+                    text = "Para comenzar, ingresa tu RUT y el RUT de tu empresa",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -66,7 +69,7 @@ fun UserRegistrationDialog(
                 OutlinedTextField(
                     value = rutInput,
                     onValueChange = onRutChange,
-                    label = { Text("RUT") },
+                    label = { Text("Tu RUT") },
                     placeholder = { Text("12.345.678-9") },
                     visualTransformation = RutVisualTransformation(),
                     isError = rutError != null,
@@ -78,6 +81,33 @@ fun UserRegistrationDialog(
                             )
                         } else {
                             Text("Ingresa tu RUT")
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Next
+                    ),
+                    enabled = registrationState !is RegistrationState.Loading,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // Campo de RUT Empresa
+                OutlinedTextField(
+                    value = rutEmpresaInput,
+                    onValueChange = onRutEmpresaChange,
+                    label = { Text("RUT Empresa") },
+                    placeholder = { Text("76.123.456-7") },
+                    visualTransformation = RutVisualTransformation(),
+                    isError = rutEmpresaError != null,
+                    supportingText = {
+                        if (rutEmpresaError != null) {
+                            Text(
+                                text = rutEmpresaError,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Text("Ingresa el RUT de tu empresa")
                         }
                     },
                     keyboardOptions = KeyboardOptions(
@@ -114,7 +144,7 @@ fun UserRegistrationDialog(
                 // Botón de registro
                 Button(
                     onClick = onRegisterClick,
-                    enabled = registrationState !is RegistrationState.Loading && rutInput.isNotBlank(),
+                    enabled = registrationState !is RegistrationState.Loading && rutInput.isNotBlank() && rutEmpresaInput.isNotBlank(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     if (registrationState is RegistrationState.Loading) {
@@ -127,7 +157,7 @@ fun UserRegistrationDialog(
                     }
                     Text(
                         text = if (registrationState is RegistrationState.Loading)
-                            "Registrando..."
+                            "Verificando..."
                         else
                             "Continuar"
                     )

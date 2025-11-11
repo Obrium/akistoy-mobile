@@ -1,6 +1,8 @@
 package com.akiestoy.beacons.api
 
 import com.akiestoy.beacons.BuildConfig
+import com.akiestoy.beacons.network.AuthApiService
+import com.akiestoy.beacons.network.ZonesApiService
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -44,6 +46,18 @@ object ApiClient {
         .build()
 
     val userApi: UserApi = userRetrofit.create(UserApi::class.java)
+
+    // Retrofit para el servicio de autenticación
+    private val authRetrofit = Retrofit.Builder()
+        .baseUrl(BASE_URL)
+        .client(okHttpClient)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+    val authApi: AuthApiService = authRetrofit.create(AuthApiService::class.java)
+
+    // API para zonas/beacons (usa el mismo retrofit que auth)
+    val zonesApi: ZonesApiService = authRetrofit.create(ZonesApiService::class.java)
 
     /**
      * Permite configurar la URL base dinámicamente
