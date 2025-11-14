@@ -170,6 +170,7 @@ class ProximityBeaconScanner(
         // Verificar si es un iBeacon válido
         val scanRecord = result.scanRecord
         if (scanRecord == null) {
+            Log.v(TAG, "❌ No scan record for device: $macAddress")
             return
         }
 
@@ -177,20 +178,24 @@ class ProximityBeaconScanner(
         val beaconData = parseIBeaconData(scanRecord.bytes)
         if (beaconData != null) {
             val (uuid, major, minor, txPower) = beaconData
+            Log.d(TAG, "📡 Found iBeacon: MAC=$macAddress, UUID=$uuid, Major=$major, Minor=$minor, RSSI=$rssi")
 
             // Verificar que sea nuestro UUID
             if (uuid.equals(IBEACON_UUID, ignoreCase = true)) {
+                Log.d(TAG, "✅ UUID matches! Checking if favorite...")
                 // Verificar si el beacon está en favoritos
                 if (isFavorite(macAddress)) {
-                    // Solo log VERBOSE (no se muestra por defecto en logcat)
+                    Log.i(TAG, "⭐ Beacon is favorite! Notifying detection")
                     // Notificar detección mediante callback
                     onBeaconDetected(macAddress, rssi)
                 } else {
-                    // Beacon no favorito - ignorar silenciosamente
+                    Log.d(TAG, "⚠️ Beacon not in favorites: $macAddress")
                 }
             } else {
-                // UUID diferente - ignorar silenciosamente
+                Log.v(TAG, "⚠️ UUID doesn't match. Expected: $IBEACON_UUID, Got: $uuid")
             }
+        } else {
+            Log.v(TAG, "⚠️ Not an iBeacon or invalid format: $macAddress")
         }
     }
 
