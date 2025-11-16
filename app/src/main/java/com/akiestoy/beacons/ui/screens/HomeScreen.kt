@@ -62,10 +62,15 @@ fun HomeScreen(
     // Observar la zona actual desde el estado global
     val currentZone by AppState.currentZone.collectAsState()
 
-    // Iniciar escaneo al montar la pantalla (UNA SOLA VEZ)
-    LaunchedEffect(Unit) {
-        // Iniciar el escaneo una sola vez - se mantendrá activo continuamente
-        beaconViewModel.startScanning()
+    // Iniciar escaneo automático DESPUÉS de que el usuario esté autenticado y las zonas se hayan cargado
+    LaunchedEffect(currentUser) {
+        if (currentUser != null) {
+            // Esperar un momento para que refreshZones termine
+            delay(2000)
+            // Iniciar el escaneo automático de beacons registrados
+            // Se conectará automáticamente al beacon más cercano
+            beaconViewModel.startAutoScanning()
+        }
     }
 
     // Loop separado para actualizar la UI cada 2 segundos (sin reiniciar el escaneo)
@@ -210,7 +215,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                // RUT del usuario
+                // Tenant ID del usuario
                 currentUser?.let { user ->
                     Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -225,13 +230,13 @@ fun HomeScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                    text = "RUT:",
+                                    text = "Tenant ID:",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                    text = RutValidator.formatRut(user.id),
+                                    text = user.tenantId,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer

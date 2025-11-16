@@ -84,6 +84,7 @@ class MainActivity : ComponentActivity() {
         val userRepository = UserRepository(
             database.userDao(),
             database.zoneDao(),
+            database.registeredBeaconDao(),
             com.akiestoy.beacons.api.ApiClient.authApi,
             com.akiestoy.beacons.api.ApiClient.zonesApi,
             favoritesRepository

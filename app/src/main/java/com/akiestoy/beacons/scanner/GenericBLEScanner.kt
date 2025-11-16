@@ -38,6 +38,7 @@ class GenericBLEScanner(context: Context) {
             val rssi = result.rssi
             val scanRecord = result.scanRecord
 
+
             // Recopilar manufacturer data e iBeacon data primero
             val manufacturerDataMap = mutableMapOf<Int, String>()
             var iBeaconData: IBeaconData? = null
@@ -50,9 +51,24 @@ class GenericBLEScanner(context: Context) {
                         val data = manufacturerData.valueAt(i)
                         manufacturerDataMap[manufacturerId] = bytesToHex(data)
 
-                        // Si es Apple (0x004C), intentar parsear como iBeacon
-                        if (manufacturerId == 0x004C && data.size >= 23) {
-                            iBeaconData = parseIBeaconDataToModel(data)
+                        // Log detallado para debugging con nivel INFO para que sea más visible
+                        if (device.name == "prueba" || device.address.contains("BC:57:29", ignoreCase = true)) {
+                            Log.i(TAG, "🔍 BEACON OBJETIVO ENCONTRADO!")
+                            Log.i(TAG, "📦 Manufacturer Data: ID=0x${manufacturerId.toString(16).uppercase()}, Size=${data.size}, Data=${bytesToHex(data)}, Device=${device.name ?: device.address}")
+                        }
+
+                        // Intentar parsear como iBeacon independientemente del manufacturer ID
+                        // (ESP32 y otros beacons custom pueden usar IDs diferentes a Apple)
+                        if (data.size >= 23) {
+                            val parsed = parseIBeaconDataToModel(data)
+                            if (parsed != null) {
+                                iBeaconData = parsed
+                                Log.d(TAG, "✅ iBeacon detectado! Manufacturer ID: 0x${manufacturerId.toString(16).uppercase()}, UUID: ${parsed.uuid}, Major: ${parsed.major}, Minor: ${parsed.minor}")
+                            } else {
+                                Log.w(TAG, "⚠️ Datos suficientes (${data.size} bytes) pero no es formato iBeacon: ${bytesToHex(data)}")
+                            }
+                        } else {
+                            Log.d(TAG, "⏭️ Datos muy cortos para iBeacon (${data.size} bytes)")
                         }
                     }
                 }

@@ -9,6 +9,7 @@ import com.akiestoy.beacons.model.BLEScanLog
 import com.akiestoy.beacons.model.BeaconDetection
 import com.akiestoy.beacons.scanner.BeaconScanner
 import com.akiestoy.beacons.scanner.GenericBLEScanner
+import com.akiestoy.beacons.service.BeaconReadingService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,6 +63,13 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     // Lista de beacons favoritos
     private val _favoriteBeacons = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val favoriteBeacons: StateFlow<List<BLEScanLog>> = _favoriteBeacons.asStateFlow()
+
+    // Servicio para enviar lecturas de beacons cada 10 segundos
+    private val beaconReadingService = BeaconReadingService(
+        context = application,
+        serviceScope = viewModelScope,
+        favoriteBeaconsFlow = favoriteBeacons
+    )
 
     // Jobs de las coroutines de escaneo
     private var scanLogsJob: Job? = null
@@ -207,7 +215,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun stopScanning() {
         Log.d("BeaconViewModel", "Stopping scanners...")
-        
+
         // Cancelar las coroutines de escaneo, el timer automático y el filtro
         scanLogsJob?.cancel()
         beaconScanJob?.cancel()
@@ -217,15 +225,18 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
         beaconScanJob = null
         autoStopJob = null
         filterUpdateJob = null
-        
+
         // Detener los scanners
         genericScanner.stopScanning()
-        
+
+        // Detener el envío de lecturas
+        beaconReadingService.stopSending()
+
         // Actualizar el estado
         _uiState.value = BeaconUiState.Idle
         _detections.value = emptyList()
         // No limpiamos los logs para que puedan ser revisados después de detener
-        
+
         Log.d("BeaconViewModel", "Scanners stopped successfully")
     }
 
@@ -287,6 +298,100 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
         }
         
         _filteredScanLogs.value = filtered
+    }
+
+    /**
+     * Inicia el escaneo automático de beacons registrados
+     * Se conectará automáticamente al beacon más cercano
+     */
+    fun startAutoScanning() {
+        viewModelScope.launch {
+            try {
+                val database = com.akiestoy.beacons.data.AppDatabase.getDatabase(getApplication())
+                val registeredBeacons = database.registeredBeaconDao().getAllActiveBeaconsOnce()
+
+                if (registeredBeacons.isEmpty()) {
+                    Log.w("BeaconViewModel", "⚠️ No hay beacons registrados para escanear")
+                    return@launch
+                }
+
+                Log.i("BeaconViewModel", "🔍 Iniciando escaneo automático de ${registeredBeacons.size} beacons registrados")
+                registeredBeacons.forEach { beacon ->
+                    Log.i("BeaconViewModel", "   📍 ${beacon.zoneName}: UUID=${beacon.advUuid}, major=${beacon.major}, minor=${beacon.minor}")
+                }
+
+                // Iniciar el escaneo
+                startScanning()
+
+                // Iniciar el envío periódico de lecturas
+                beaconReadingService.startSending()
+
+                // Monitorear beacons detectados y actualizar dinámicamente el beacon activo
+                var lastActiveBeaconMac: String? = null
+
+                viewModelScope.launch {
+                    uniqueDevices.collect { devices ->
+                        if (devices.isEmpty()) return@collect
+
+                        // Buscar beacons registrados en los dispositivos detectados
+                        // Comparar SOLO por UUID, ignorando major y minor
+                        val detectedRegisteredBeacons = devices.mapNotNull { device ->
+                            // Solo procesar si tiene datos de iBeacon
+                            val iBeacon = device.iBeaconData ?: return@mapNotNull null
+
+                            // Buscar en beacons registrados si el UUID coincide (ignorar major/minor)
+                            val matchingBeacon = registeredBeacons.find { beacon ->
+                                iBeacon.uuid.lowercase() == beacon.advUuid.lowercase()
+                            }
+
+                            if (matchingBeacon != null) {
+                                Log.d("BeaconViewModel", "✅ Match por UUID: ${matchingBeacon.zoneName} (UUID=${iBeacon.uuid}, detected major=${iBeacon.major}, minor=${iBeacon.minor}, registered major=${matchingBeacon.major}, minor=${matchingBeacon.minor}, MAC=${device.macAddress}, RSSI=${device.rssi})")
+                                Pair(device, matchingBeacon)
+                            } else {
+                                Log.v("BeaconViewModel", "⚠️ No match: UUID=${iBeacon.uuid}, major=${iBeacon.major}, minor=${iBeacon.minor}, MAC=${device.macAddress}")
+                                null
+                            }
+                        }
+
+                        if (detectedRegisteredBeacons.isNotEmpty()) {
+                            // Ordenar por RSSI (señal más fuerte primero) para encontrar el más cercano
+                            val closestBeacon = detectedRegisteredBeacons.maxByOrNull { it.first.rssi }
+
+                            if (closestBeacon != null) {
+                                val (device, registeredBeacon) = closestBeacon
+
+                                // Solo loguear si cambió el beacon activo
+                                if (lastActiveBeaconMac != device.macAddress) {
+                                    Log.i("BeaconViewModel", "🔄 Cambiando a beacon más cercano: ${registeredBeacon.zoneName} (MAC: ${device.macAddress}, RSSI: ${device.rssi})")
+                                    lastActiveBeaconMac = device.macAddress
+                                }
+
+                                // IMPORTANTE: Actualizar favoritos para que solo el beacon más cercano esté activo
+                                viewModelScope.launch {
+                                    // Limpiar favoritos anteriores
+                                    favoritesRepository.clearFavorites()
+                                    // Marcar solo el beacon más cercano como favorito
+                                    favoritesRepository.addFavorites(listOf(device.macAddress))
+                                    Log.d("BeaconViewModel", "⭐ Beacon activo: ${registeredBeacon.zoneName} (RSSI: ${device.rssi})")
+                                }
+                            }
+                        } else {
+                            // No hay beacons registrados cerca, limpiar favoritos
+                            if (lastActiveBeaconMac != null) {
+                                Log.i("BeaconViewModel", "⚠️ No hay beacons registrados cerca, desconectando...")
+                                lastActiveBeaconMac = null
+                                viewModelScope.launch {
+                                    favoritesRepository.clearFavorites()
+                                }
+                            }
+                        }
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e("BeaconViewModel", "❌ Error al iniciar escaneo automático", e)
+            }
+        }
     }
 
     override fun onCleared() {

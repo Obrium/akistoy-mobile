@@ -6,19 +6,21 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.akiestoy.beacons.model.user.User
 import com.akiestoy.beacons.model.Zone
+import com.akiestoy.beacons.model.RegisteredBeacon
 
 /**
  * Base de datos principal de la aplicación
  */
 @Database(
-    entities = [User::class, PendingEvent::class, Zone::class],
-    version = 5,
+    entities = [User::class, PendingEvent::class, Zone::class, RegisteredBeacon::class],
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun pendingEventDao(): PendingEventDao
     abstract fun zoneDao(): ZoneDao
+    abstract fun registeredBeaconDao(): RegisteredBeaconDao
 
     companion object {
         @Volatile

@@ -226,6 +226,14 @@ class BeaconTrackingService(
                 rssi = rssi
             )
 
+            Log.i(TAG, "📤 ENVIANDO BEACON READING:")
+            Log.i(TAG, "   └─ beaconId: $beaconId")
+            Log.i(TAG, "   └─ zona: $zoneName")
+            Log.i(TAG, "   └─ deviceId: $deviceId")
+            Log.i(TAG, "   └─ empresaId: $tenantId")
+            Log.i(TAG, "   └─ nombreDispositivo: $deviceName")
+            Log.i(TAG, "   └─ rssi: $rssi")
+
             // Usar batching en lugar de enviar inmediatamente
             eventBatcher.queueEvent(request)
             Log.v(TAG, "📥 Beacon reading queued for batch sending")

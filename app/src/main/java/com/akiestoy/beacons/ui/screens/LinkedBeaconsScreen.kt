@@ -1,5 +1,6 @@
 package com.akiestoy.beacons.ui.screens
 
+import android.app.Application
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,10 +15,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.akiestoy.beacons.data.AppDatabase
+import com.akiestoy.beacons.model.RegisteredBeacon
 import com.akiestoy.beacons.ui.BeaconViewModel
+import kotlinx.coroutines.launch
 
 /** Pantalla completa para mostrar los beacons vinculados (favoritos y zonas) */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,9 +34,21 @@ fun LinkedBeaconsScreen(
 ) {
     val favoriteBeacons by beaconViewModel.favoriteBeacons.collectAsState()
     val zones by zoneViewModel.zones.collectAsState()
-    
-    // Observar todos los beacons detectados en tiempo real
-    val allDetectedBeacons by beaconViewModel.scanLogs.collectAsState()
+
+    // Observar todos los beacons detectados en tiempo real (únicos, no todos los paquetes)
+    val allDetectedBeacons by beaconViewModel.uniqueDevices.collectAsState()
+
+    // Obtener beacons registrados de la base de datos
+    val context = LocalContext.current
+    val database = remember { AppDatabase.getDatabase(context.applicationContext as Application) }
+    var registeredBeacons by remember { mutableStateOf<List<RegisteredBeacon>>(emptyList()) }
+
+    // Cargar beacons registrados al inicio
+    LaunchedEffect(Unit) {
+        launch {
+            registeredBeacons = database.registeredBeaconDao().getAllBeaconsOnce()
+        }
+    }
 
     Scaffold(
             topBar = {
@@ -94,7 +111,8 @@ fun LinkedBeaconsScreen(
                     ZoneCard(
                             zone = zone,
                             detectedBeacons = allDetectedBeacons,
-                            onRemove = { 
+                            registeredBeacons = registeredBeacons,
+                            onRemove = {
                                 zoneViewModel.deleteZone(zone.id)
                                 beaconViewModel.toggleFavorite(zone.id) // Remover también de favoritos
                             }
@@ -194,15 +212,28 @@ private fun LinkedBeaconCard(beacon: com.akiestoy.beacons.model.BLEScanLog, onRe
 /** Card para mostrar una zona vinculada */
 @Composable
 private fun ZoneCard(
-    zone: com.akiestoy.beacons.model.Zone, 
+    zone: com.akiestoy.beacons.model.Zone,
     detectedBeacons: List<com.akiestoy.beacons.model.BLEScanLog>,
+    registeredBeacons: List<RegisteredBeacon>,
     onRemove: () -> Unit
 ) {
-    // Buscar si el beacon de esta zona está siendo detectado
-    val detectedBeacon = detectedBeacons.find { beacon ->
-        beacon.macAddress == zone.id
+    // Obtener los beacons registrados para esta zona
+    val zoneBeacons = registeredBeacons.filter { it.zoneId == zone.id }
+
+    // Buscar si algún beacon de esta zona está siendo detectado
+    // Comparar SOLO por UUID, ignorando major y minor
+    val detectedBeacon = detectedBeacons.find { detected ->
+        val iBeacon = detected.iBeaconData ?: return@find false
+        // Buscar si hay algún beacon registrado de esta zona con el mismo UUID (solo UUID)
+        val found = zoneBeacons.any { registered ->
+            val match = iBeacon.uuid.lowercase() == registered.advUuid.lowercase()
+            android.util.Log.d("LinkedBeaconsScreen", "🔍 Comparando UUID: detected=${iBeacon.uuid} vs registered=${registered.advUuid} (zona=${zone.name}) -> match=$match")
+            match
+        }
+        android.util.Log.d("LinkedBeaconsScreen", "📊 Zona ${zone.name}: ${zoneBeacons.size} beacons registrados, found=$found")
+        found
     }
-    
+
     // Determinar color de borde basado en si está en alcance
     val borderColor = if (detectedBeacon != null) Color(0xFF4CAF50) else Color(0xFFE0E0E0) // Verde si detectado, gris si no
     val borderWidth = if (detectedBeacon != null) 2.dp else 1.dp

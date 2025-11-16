@@ -120,14 +120,25 @@ class EventBatcher(
 
             eventsToSend.forEach { event ->
                 try {
+                    Log.i(TAG, "🌐 POST /v1/mobile/beacon-reading")
+                    Log.i(TAG, "   beaconId: ${event.beaconId}")
+                    Log.i(TAG, "   zona: ${event.zona}")
+                    Log.i(TAG, "   deviceId: ${event.deviceId}")
+                    Log.i(TAG, "   empresaId: ${event.empresaId}")
+                    Log.i(TAG, "   nombreDispositivo: ${event.nombreDispositivo}")
+                    Log.i(TAG, "   rssi: ${event.rssi}")
+                    
                     val response = api.sendProximityEvent(event)
+                    
                     if (response.isSuccessful) {
                         successCount++
                         totalEventsSuccess++
+                        Log.i(TAG, "✅ Respuesta: ${response.code()} OK")
                     } else {
                         failCount++
                         totalEventsFailed++
-                        Log.e(TAG, "❌ Failed to send event: ${response.code()}")
+                        Log.e(TAG, "❌ Respuesta: ${response.code()} - ${response.message()}")
+                        Log.e(TAG, "   Error body: ${response.errorBody()?.string()}")
 
                         // Guardar en cola offline si está disponible
                         saveToOfflineQueue(event)

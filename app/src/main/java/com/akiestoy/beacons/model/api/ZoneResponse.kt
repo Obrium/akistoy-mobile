@@ -25,5 +25,49 @@ data class ZoneResponse(
     val rssiThresholdNear: Int,
 
     @SerializedName("rssiThresholdFar")
-    val rssiThresholdFar: Int
+    val rssiThresholdFar: Int,
+
+    @SerializedName("beacons")
+    val beacons: List<BeaconResponse> = emptyList()
+)
+
+/**
+ * Respuesta de un beacon dentro de una zona
+ */
+data class BeaconResponse(
+    @SerializedName("id")
+    val id: String,
+
+    @SerializedName("tenantId")
+    val tenantId: String,
+
+    @SerializedName("companyId")
+    val companyId: String,
+
+    @SerializedName("advUuid")
+    val advUuid: String,
+
+    @SerializedName("major")
+    val major: Int,
+
+    @SerializedName("minor")
+    val minor: Int,
+
+    @SerializedName("txPower")
+    val txPower: Int,
+
+    @SerializedName("model")
+    val model: String,
+
+    @SerializedName("beaconType")
+    val beaconType: String,
+
+    @SerializedName("status")
+    val status: String,
+
+    @SerializedName("zoneName")
+    val zoneName: String,
+
+    @SerializedName("zoneId")
+    val zoneId: String
 )

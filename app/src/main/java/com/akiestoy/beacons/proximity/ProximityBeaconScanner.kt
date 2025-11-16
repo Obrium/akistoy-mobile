@@ -24,7 +24,7 @@ import java.util.UUID
  */
 class ProximityBeaconScanner(
     private val context: Context,
-    private val onBeaconDetected: (macAddress: String, rssi: Int) -> Unit,
+    private val onBeaconDetected: (macAddress: String, uuid: String, major: Int, minor: Int, rssi: Int) -> Unit,
     private val isFavorite: (String) -> Boolean
 ) {
     private val TAG = "ProximityBeaconScanner"
@@ -187,7 +187,7 @@ class ProximityBeaconScanner(
                 if (isFavorite(macAddress)) {
                     Log.i(TAG, "⭐ Beacon is favorite! Notifying detection")
                     // Notificar detección mediante callback
-                    onBeaconDetected(macAddress, rssi)
+                    onBeaconDetected(macAddress, uuid, major, minor, rssi)
                 } else {
                     Log.d(TAG, "⚠️ Beacon not in favorites: $macAddress")
                 }

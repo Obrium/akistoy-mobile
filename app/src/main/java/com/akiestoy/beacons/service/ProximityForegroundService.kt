@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -38,6 +39,8 @@ class ProximityForegroundService : Service() {
     private lateinit var trackingService: BeaconTrackingService
     private lateinit var proximityScanner: ProximityBeaconScanner
     private lateinit var favoritesRepository: FavoritesRepository
+    private lateinit var database: AppDatabase
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -64,6 +67,16 @@ class ProximityForegroundService : Service() {
         super.onCreate()
         Log.i(TAG, "🚀 ProximityForegroundService created")
 
+        // Adquirir Wake Lock para mantener el CPU activo con pantalla bloqueada
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "AkiEstoy::BeaconScanningWakeLock"
+        ).apply {
+            acquire()
+            Log.i(TAG, "🔋 Wake Lock adquirido - el CPU se mantendrá activo")
+        }
+
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification("Inicializando..."))
 
@@ -86,6 +99,14 @@ class ProximityForegroundService : Service() {
 
     override fun onDestroy() {
         Log.i(TAG, "🛑 Service destroyed")
+
+        // Liberar Wake Lock
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+                Log.i(TAG, "🔋 Wake Lock liberado")
+            }
+        }
 
         // Detener escaneo
         proximityScanner.stopScanning()
@@ -120,7 +141,7 @@ class ProximityForegroundService : Service() {
         favoritesRepository = FavoritesRepository(this)
 
         // Obtener base de datos y DAO
-        val database = AppDatabase.getDatabase(this)
+        database = AppDatabase.getDatabase(this)
         val pendingEventDao = database.pendingEventDao()
 
         // Crear EventBatcher con cola offline
@@ -140,21 +161,41 @@ class ProximityForegroundService : Service() {
         // Crear Scanner con callback al tracking service
         proximityScanner = ProximityBeaconScanner(
             context = this,
-            onBeaconDetected = { macAddress, rssi ->
-                // Solo procesar si está en favoritos
-                if (favoritesRepository.isFavorite(macAddress)) {
-                    serviceScope.launch {
+            onBeaconDetected = { macAddress, uuid, major, minor, rssi ->
+                serviceScope.launch {
+                    Log.i(TAG, "🔍 Beacon detectado: UUID=${uuid.lowercase()}, Major=$major, Minor=$minor, MAC=$macAddress")
+                    
+                    // Buscar el beacon registrado para obtener su zoneName
+                    val registeredBeacon = database.registeredBeaconDao().getBeaconByIdentifiers(
+                        uuid = uuid.lowercase(),
+                        major = major,
+                        minor = minor
+                    )
+                    
+                    if (registeredBeacon != null) {
+                        Log.i(TAG, "✅ Beacon encontrado en BD: ID=${registeredBeacon.id}, Zona=${registeredBeacon.zoneName}")
+                        
+                        // Solo procesar beacons registrados (que están en la BD)
                         // Enviar al tracking service
-                        // El beacon ID es el MAC, la zona también es el MAC
                         trackingService.onBeaconDetected(
-                            beaconId = macAddress,
-                            zoneName = macAddress,
+                            beaconId = registeredBeacon.id,
+                            zoneName = registeredBeacon.zoneName,
                             rssi = rssi
                         )
+                        
+                        Log.i(TAG, "📡 Enviado al tracking: BeaconID=${registeredBeacon.id}, Zona=${registeredBeacon.zoneName}, RSSI=$rssi")
+                    } else {
+                        Log.w(TAG, "⚠️ Beacon NO registrado en BD. Ignorando...")
+                        // Listar todos los beacons registrados para debug (solo primera vez)
+                        val allBeacons = database.registeredBeaconDao().getAllBeaconsOnce()
+                        Log.w(TAG, "📋 Total beacons registrados: ${allBeacons.size}")
+                        allBeacons.forEach { beacon ->
+                            Log.d(TAG, "   - UUID=${beacon.advUuid}, Major=${beacon.major}, Minor=${beacon.minor}, Zona=${beacon.zoneName}")
+                        }
                     }
                 }
             },
-            isFavorite = { macAddress -> favoritesRepository.isFavorite(macAddress) }
+            isFavorite = { macAddress -> true } // Ya no usa favoritos, procesa todos los beacons
         )
 
         // Log de beacons favoritos

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 class UserRepository(
         private val userDao: UserDao,
         private val zoneDao: ZoneDao,
+        private val registeredBeaconDao: RegisteredBeaconDao,
         private val authApiService: AuthApiService,
         private val zonesApiService: com.akiestoy.beacons.network.ZonesApiService,
         private val favoritesRepository: FavoritesRepository
@@ -111,10 +112,36 @@ class UserRepository(
                         zoneDao.insertZones(zones)
                         Log.i(TAG, "✅ Se guardaron ${zones.size} zonas en la base de datos")
 
-                        // Agregar los IDs de las zonas como favoritos (vinculados)
-                        val zoneIds = zones.map { it.id }
-                        favoritesRepository.addFavorites(zoneIds)
-                        Log.i(TAG, "✅ Se agregaron ${zoneIds.size} zonas como beacons vinculados")
+                        // Extraer y guardar todos los beacons de las zonas
+                        val allBeacons = zonesData.flatMap { zoneResponse ->
+                            zoneResponse.beacons.map { beaconResponse ->
+                                com.akiestoy.beacons.model.RegisteredBeacon(
+                                    id = beaconResponse.id,
+                                    tenantId = beaconResponse.tenantId,
+                                    companyId = beaconResponse.companyId,
+                                    advUuid = beaconResponse.advUuid.lowercase(),
+                                    major = beaconResponse.major,
+                                    minor = beaconResponse.minor,
+                                    txPower = beaconResponse.txPower,
+                                    model = beaconResponse.model,
+                                    beaconType = beaconResponse.beaconType,
+                                    status = beaconResponse.status,
+                                    zoneName = beaconResponse.zoneName,
+                                    zoneId = beaconResponse.zoneId,
+                                    createdAt = System.currentTimeMillis(),
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            }
+                        }
+
+                        registeredBeaconDao.insertBeacons(allBeacons)
+                        Log.i(TAG, "✅ Se guardaron ${allBeacons.size} beacons en la base de datos")
+                        allBeacons.forEach { beacon ->
+                            Log.i(TAG, "   📍 Beacon: ${beacon.zoneName} (UUID: ${beacon.advUuid}, major: ${beacon.major}, minor: ${beacon.minor})")
+                        }
+
+                        // Los beacons se marcarán como favoritos automáticamente cuando se detecten
+                        Log.i(TAG, "ℹ️ Los beacons se marcarán como favoritos automáticamente al ser detectados")
                     } else {
                         Log.e(TAG, "❌ Error al obtener zonas: ${zonesResponse.code()}")
                     }
@@ -262,11 +289,35 @@ class UserRepository(
                 zoneDao.insertZones(zones)
                 Log.i(TAG, "✅ Se guardaron ${zones.size} zonas en la base de datos")
 
-                // Actualizar los beacons vinculados
-                val zoneIds = zones.map { it.id }
-                favoritesRepository.clearFavorites()
-                favoritesRepository.addFavorites(zoneIds)
-                Log.i(TAG, "✅ Se actualizaron ${zoneIds.size} beacons vinculados")
+                // Extraer y guardar todos los beacons de las zonas
+                val allBeacons = zonesResponseBody.flatMap { zoneResponse ->
+                    zoneResponse.beacons.map { beaconResponse ->
+                        com.akiestoy.beacons.model.RegisteredBeacon(
+                            id = beaconResponse.id,
+                            tenantId = beaconResponse.tenantId,
+                            companyId = beaconResponse.companyId,
+                            advUuid = beaconResponse.advUuid.lowercase(),
+                            major = beaconResponse.major,
+                            minor = beaconResponse.minor,
+                            txPower = beaconResponse.txPower,
+                            model = beaconResponse.model,
+                            beaconType = beaconResponse.beaconType,
+                            status = beaconResponse.status,
+                            zoneName = beaconResponse.zoneName,
+                            zoneId = beaconResponse.zoneId,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    }
+                }
+
+                // Limpiar beacons anteriores y guardar los nuevos
+                registeredBeaconDao.deleteAll()
+                registeredBeaconDao.insertBeacons(allBeacons)
+                Log.i(TAG, "✅ Se actualizaron ${allBeacons.size} beacons en la base de datos")
+
+                // Los beacons se marcarán como favoritos automáticamente cuando se detecten
+                Log.i(TAG, "ℹ️ Los beacons se marcarán como favoritos automáticamente al ser detectados")
 
                 Pair(true, "")
             } else {
