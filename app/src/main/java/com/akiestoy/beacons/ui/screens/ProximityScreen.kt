@@ -24,9 +24,18 @@ fun ProximityScreen() {
     val favoritesRepository = remember { FavoritesRepository(context) }
     val favorites by favoritesRepository.favorites.collectAsState()
 
-    var isServiceRunning by remember { mutableStateOf(false) }
+    // Consultar el estado real del servicio
+    var isServiceRunning by remember { mutableStateOf(ProximityForegroundService.isServiceRunning()) }
     var backendUrl by remember { mutableStateOf("https://djaxfn1a2gzj8.cloudfront.net/") }
     var showUrlDialog by remember { mutableStateOf(false) }
+
+    // Actualizar el estado periódicamente
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000) // Verificar cada segundo
+            isServiceRunning = ProximityForegroundService.isServiceRunning()
+        }
+    }
 
     Scaffold(
             topBar = {
@@ -88,12 +97,12 @@ fun ProximityScreen() {
                     onStartService = {
                         if (favorites.isNotEmpty()) {
                             ProximityForegroundService.startService(context)
-                            isServiceRunning = true
+                            // El estado se actualizará automáticamente por el LaunchedEffect
                         }
                     },
                     onStopService = {
                         ProximityForegroundService.stopService(context)
-                        isServiceRunning = false
+                        // El estado se actualizará automáticamente por el LaunchedEffect
                     }
             )
 

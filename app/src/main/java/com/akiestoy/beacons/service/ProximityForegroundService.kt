@@ -48,6 +48,9 @@ class ProximityForegroundService : Service() {
         private const val CHANNEL_ID = "ProximityServiceChannel"
         private const val NOTIFICATION_ID = 1002
 
+        @Volatile
+        private var isRunning = false
+
         fun startService(context: Context) {
             val intent = Intent(context, ProximityForegroundService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -61,10 +64,16 @@ class ProximityForegroundService : Service() {
             val intent = Intent(context, ProximityForegroundService::class.java)
             context.stopService(intent)
         }
+
+        /**
+         * Verifica si el servicio está actualmente en ejecución
+         */
+        fun isServiceRunning(): Boolean = isRunning
     }
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         Log.i(TAG, "🚀 ProximityForegroundService created")
 
         // Adquirir Wake Lock para mantener el CPU activo con pantalla bloqueada
@@ -98,6 +107,7 @@ class ProximityForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         Log.i(TAG, "🛑 Service destroyed")
 
         // Liberar Wake Lock
