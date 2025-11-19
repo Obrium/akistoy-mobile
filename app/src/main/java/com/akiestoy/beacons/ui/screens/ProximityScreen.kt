@@ -1,5 +1,7 @@
 package com.akiestoy.beacons.ui.screens
 
+import com.akiestoy.beacons.BuildConfig
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,8 +13,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.service.ProximityForegroundService
 
@@ -21,18 +26,39 @@ import com.akiestoy.beacons.service.ProximityForegroundService
 @Composable
 fun ProximityScreen() {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val favoritesRepository = remember { FavoritesRepository(context) }
     val favorites by favoritesRepository.favorites.collectAsState()
 
-    // Consultar el estado real del servicio
+    // Consultar el estado real del servicio - inicializar con el estado actual del servicio
     var isServiceRunning by remember { mutableStateOf(ProximityForegroundService.isServiceRunning()) }
-    var backendUrl by remember { mutableStateOf("https://djaxfn1a2gzj8.cloudfront.net/") }
+    var backendUrl by remember { mutableStateOf(BuildConfig.API_BASE_URL + "/") }
     var showUrlDialog by remember { mutableStateOf(false) }
+
+    // Actualizar el estado cuando la app regresa del segundo plano
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // Actualizar el estado cuando la pantalla se reanuda
+                isServiceRunning = ProximityForegroundService.isServiceRunning()
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     // Actualizar el estado periódicamente
     LaunchedEffect(Unit) {
+        // Actualizar inmediatamente al cargar
+        isServiceRunning = ProximityForegroundService.isServiceRunning()
+
+        // Seguir verificando cada segundo
         while (true) {
-            kotlinx.coroutines.delay(1000) // Verificar cada segundo
+            kotlinx.coroutines.delay(1000)
             isServiceRunning = ProximityForegroundService.isServiceRunning()
         }
     }

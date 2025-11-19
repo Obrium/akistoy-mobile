@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.akiestoy.beacons.data.FavoritesRepository
-import com.akiestoy.beacons.config.AppConfig
 import com.akiestoy.beacons.model.BLEScanLog
 import com.akiestoy.beacons.model.BeaconDetection
 import com.akiestoy.beacons.scanner.BeaconScanner
@@ -83,6 +82,8 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     companion object {
         private const val AUTO_STOP_DELAY_MS = 5000L // 5 segundos
+        private const val LOG_INTERVAL_MS = 5000L // Intervalo entre logs
+        private const val FILTER_UPDATE_INTERVAL_MS = 2000L // Actualizar filtros cada 2 segundos
     }
 
     init {
@@ -177,7 +178,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 
                 // Log solo cada 5 segundos para no saturar la consola
                 val currentTime = System.currentTimeMillis()
-                if (currentTime - lastLogTime >= AppConfig.LOG_INTERVAL_MS) {
+                if (currentTime - lastLogTime >= LOG_INTERVAL_MS) {
                     Log.d("BeaconViewModel", "📊 Scan status: ${currentLogs.size} packets | ${currentDevices.size} devices | Latest: ${newLog.macAddress}")
                     lastLogTime = currentTime
                 }
@@ -187,7 +188,7 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
         // Job separado para actualizar filtros y paquetes cada 2 segundos
         filterUpdateJob = viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(AppConfig.FILTER_UPDATE_INTERVAL_MS)
+                kotlinx.coroutines.delay(FILTER_UPDATE_INTERVAL_MS)
                 // Actualizar filtros de Scanner
                 applySearchFilter()
                 // Actualizar paquetes para pantalla Packets

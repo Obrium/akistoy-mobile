@@ -498,7 +498,9 @@ fun ScanLogCard(
 ) {
     // Observar el estado de favoritos en tiempo real
     val favorites by viewModel.favorites.collectAsState()
-    val isFavorite = favorites.contains(log.macAddress)
+    // Verificar si este beacon es favorito usando UUID + major + minor
+    val beaconIdentifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(log)
+    val isFavorite = beaconIdentifier != null && favorites.any { it.matches(beaconIdentifier) }
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -612,7 +614,14 @@ fun ScanLogCard(
             }
             
             // Botón de favorito
-            IconButton(onClick = { viewModel.toggleFavorite(log.macAddress) }) {
+            IconButton(onClick = {
+                val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(log)
+                if (identifier != null) {
+                    viewModel.toggleFavorite(identifier)
+                } else {
+                    viewModel.toggleFavorite(log.macAddress)
+                }
+            }) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",

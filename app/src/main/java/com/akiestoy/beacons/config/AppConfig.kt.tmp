@@ -1,0 +1,7 @@
+
+    /**
+     * Intervalo de logs para evitar saturación de logcat (en milisegundos)
+     * Por defecto: 5 segundos
+     */
+    val LOG_INTERVAL_MS: Long = 5000L
+}

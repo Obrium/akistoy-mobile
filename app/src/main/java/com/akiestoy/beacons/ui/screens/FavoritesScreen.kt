@@ -67,7 +67,14 @@ fun FavoritesScreen(viewModel: BeaconViewModel) {
                 items(favoriteBeacons, key = { it.macAddress }) { beacon ->
                     FavoriteBeaconCard(
                         beacon = beacon,
-                        onToggleFavorite = { viewModel.toggleFavorite(beacon.macAddress) }
+                        onToggleFavorite = {
+                            val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(beacon)
+                            if (identifier != null) {
+                                viewModel.toggleFavorite(identifier)
+                            } else {
+                                viewModel.toggleFavorite(beacon.macAddress)
+                            }
+                        }
                     )
                 }
             }

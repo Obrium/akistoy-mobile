@@ -114,7 +114,12 @@ fun LinkedBeaconsScreen(
                             registeredBeacons = registeredBeacons,
                             onRemove = {
                                 zoneViewModel.deleteZone(zone.id)
-                                beaconViewModel.toggleFavorite(zone.id) // Remover también de favoritos
+                                // Remover todos los beacons de esta zona de favoritos
+                                val zoneBeacons = registeredBeacons.filter { it.zoneId == zone.id }
+                                zoneBeacons.forEach { beacon ->
+                                    val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromRegisteredBeacon(beacon)
+                                    beaconViewModel.toggleFavorite(identifier)
+                                }
                             }
                     )
                 }
@@ -221,13 +226,15 @@ private fun ZoneCard(
     val zoneBeacons = registeredBeacons.filter { it.zoneId == zone.id }
 
     // Buscar si algún beacon de esta zona está siendo detectado
-    // Comparar SOLO por UUID, ignorando major y minor
+    // Comparar por UUID + major + minor para identificación precisa
     val detectedBeacon = detectedBeacons.find { detected ->
         val iBeacon = detected.iBeaconData ?: return@find false
-        // Buscar si hay algún beacon registrado de esta zona con el mismo UUID (solo UUID)
+        // Buscar si hay algún beacon registrado de esta zona con el mismo UUID + major + minor
         val found = zoneBeacons.any { registered ->
-            val match = iBeacon.uuid.lowercase() == registered.advUuid.lowercase()
-            android.util.Log.d("LinkedBeaconsScreen", "🔍 Comparando UUID: detected=${iBeacon.uuid} vs registered=${registered.advUuid} (zona=${zone.name}) -> match=$match")
+            val match = iBeacon.uuid.lowercase() == registered.advUuid.lowercase() &&
+                       iBeacon.major == registered.major &&
+                       iBeacon.minor == registered.minor
+            android.util.Log.d("LinkedBeaconsScreen", "🔍 Comparando beacon: detected=${iBeacon.uuid}:${iBeacon.major}:${iBeacon.minor} vs registered=${registered.advUuid}:${registered.major}:${registered.minor} (zona=${zone.name}) -> match=$match")
             match
         }
         android.util.Log.d("LinkedBeaconsScreen", "📊 Zona ${zone.name}: ${zoneBeacons.size} beacons registrados, found=$found")

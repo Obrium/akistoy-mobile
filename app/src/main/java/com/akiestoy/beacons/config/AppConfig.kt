@@ -4,11 +4,11 @@ import com.akiestoy.beacons.BuildConfig
 
 /**
  * Configuración centralizada de la aplicación
- * Lee valores desde BuildConfig (generados desde .env)
+ * Lee valores desde BuildConfig (generados desde secrets.properties)
  */
 object AppConfig {
     /**
-     * Intervalo de verificación de señal de beacons (en milisegundos)
+     * Intervalo de escaneo de beacons (en milisegundos)
      * Por defecto: 2 segundos
      */
     val SCAN_INTERVAL_MS: Long = try {
@@ -28,26 +28,68 @@ object AppConfig {
     }
 
     /**
-     * Timeout para considerar señal perdida (en milisegundos)
-     * Por defecto: 5 segundos
+     * Intervalo para enviar lecturas de beacons al servidor (en milisegundos)
+     * Por defecto: 15 segundos
      */
-    const val SIGNAL_LOST_THRESHOLD_MS = 5000L
+    val BEACON_READING_INTERVAL_MS: Long = try {
+        (BuildConfig.BEACON_READING_INTERVAL_SECONDS.toLongOrNull() ?: 15L) * 1000L
+    } catch (e: Exception) {
+        15000L // Fallback a 15 segundos
+    }
 
     /**
-     * Intervalo de heartbeat (en milisegundos)
+     * Intervalo de verificación de señal (en milisegundos)
+     * Por defecto: 2 segundos
+     */
+    val SIGNAL_CHECK_INTERVAL_MS: Long = try {
+        (BuildConfig.SIGNAL_CHECK_INTERVAL_SECONDS.toLongOrNull() ?: 2L) * 1000L
+    } catch (e: Exception) {
+        2000L // Fallback a 2 segundos
+    }
+
+    /**
+     * Intervalo de heartbeat (keepalive) (en milisegundos)
      * Por defecto: 60 segundos
      */
-    const val HEARTBEAT_INTERVAL_MS = 60000L
+    val HEARTBEAT_INTERVAL_MS: Long = try {
+        (BuildConfig.HEARTBEAT_INTERVAL_SECONDS.toLongOrNull() ?: 60L) * 1000L
+    } catch (e: Exception) {
+        60000L // Fallback a 60 segundos
+    }
 
     /**
      * Delay antes de marcar salida definitiva (en milisegundos)
-     * Por defecto: 2 minutos
+     * Por defecto: 120 segundos (2 minutos)
      */
-    const val EXIT_DELAY_MS = 120000L
+    val EXIT_DELAY_MS: Long = try {
+        (BuildConfig.EXIT_DELAY_SECONDS.toLongOrNull() ?: 120L) * 1000L
+    } catch (e: Exception) {
+        120000L // Fallback a 120 segundos
+    }
+
+    /**
+     * Timeout para considerar señal perdida (en milisegundos)
+     * Por defecto: 5 segundos
+     */
+    val SIGNAL_LOST_THRESHOLD_MS: Long = try {
+        (BuildConfig.SIGNAL_LOST_THRESHOLD_SECONDS.toLongOrNull() ?: 5L) * 1000L
+    } catch (e: Exception) {
+        5000L // Fallback a 5 segundos
+    }
+
+    /**
+     * Intervalo de actualización de filtros en UI (en milisegundos)
+     * Por defecto: 1 segundo
+     */
+    val FILTER_UPDATE_INTERVAL_MS: Long = try {
+        (BuildConfig.FILTER_UPDATE_INTERVAL_SECONDS.toLongOrNull() ?: 1L) * 1000L
+    } catch (e: Exception) {
+        1000L // Fallback a 1 segundo
+    }
 
     /**
      * Intervalo de logs para evitar saturación de logcat (en milisegundos)
      * Por defecto: 5 segundos
      */
-    const val LOG_INTERVAL_MS = 5000L
+    val LOG_INTERVAL_MS: Long = 5000L
 }

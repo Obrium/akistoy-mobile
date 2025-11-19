@@ -195,7 +195,12 @@ fun AddBeaconsScreen(
                             beacon = beacon,
                             isFavorite = beaconViewModel.isFavorite(beacon.macAddress),
                             onToggleFavorite = {
-                                beaconViewModel.toggleFavorite(beacon.macAddress)
+                                val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(beacon)
+                                if (identifier != null) {
+                                    beaconViewModel.toggleFavorite(identifier)
+                                } else {
+                                    beaconViewModel.toggleFavorite(beacon.macAddress)
+                                }
                             }
                         )
                     }

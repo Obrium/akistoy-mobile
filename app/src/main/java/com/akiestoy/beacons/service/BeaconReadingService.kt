@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.akiestoy.beacons.api.ApiClient
+import com.akiestoy.beacons.config.AppConfig
 import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.model.BLEScanLog
@@ -18,7 +19,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.pow
 
 /**
- * Servicio para enviar lecturas de beacons al servidor cada 10 segundos
+ * Servicio para enviar lecturas de beacons al servidor periódicamente
+ * El intervalo se configura en AppConfig.BEACON_READING_INTERVAL_MS
  */
 class BeaconReadingService(
     private val context: Context,
@@ -43,7 +45,8 @@ class BeaconReadingService(
         }
 
         isRunning = true
-        Log.i(TAG, "🚀 Iniciando envío periódico de lecturas de beacons (cada 10 segundos)")
+        val intervalSeconds = AppConfig.BEACON_READING_INTERVAL_MS / 1000
+        Log.i(TAG, "🚀 Iniciando envío periódico de lecturas de beacons (cada $intervalSeconds segundos)")
 
         serviceScope.launch {
             while (isRunning) {
@@ -53,8 +56,8 @@ class BeaconReadingService(
                     Log.e(TAG, "❌ Error al enviar lectura de beacon", e)
                 }
 
-                // Esperar 10 segundos antes del próximo envío
-                delay(10_000)
+                // Esperar según configuración antes del próximo envío
+                delay(AppConfig.BEACON_READING_INTERVAL_MS)
             }
         }
     }

@@ -28,15 +28,14 @@ android {
             secretsProperties.load(secretsFile.inputStream())
         }
 
-        buildConfigField("String", "API_BASE_URL", "\"${secretsProperties.getProperty("API_BASE_URL", "http://192.168.100.199:3000")}\"")
-        buildConfigField("String", "SCAN_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("SCAN_INTERVAL_SECONDS", "2")}\"")
-        buildConfigField("String", "EVENT_BATCH_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("EVENT_BATCH_INTERVAL_SECONDS", "15")}\"")
-        buildConfigField("String", "BEACON_READING_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("BEACON_READING_INTERVAL_SECONDS", "15")}\"")
-        buildConfigField("String", "SIGNAL_CHECK_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("SIGNAL_CHECK_INTERVAL_SECONDS", "2")}\"")
-        buildConfigField("String", "HEARTBEAT_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("HEARTBEAT_INTERVAL_SECONDS", "60")}\"")
-        buildConfigField("String", "EXIT_DELAY_SECONDS", "\"${secretsProperties.getProperty("EXIT_DELAY_SECONDS", "120")}\"")
-        buildConfigField("String", "SIGNAL_LOST_THRESHOLD_SECONDS", "\"${secretsProperties.getProperty("SIGNAL_LOST_THRESHOLD_SECONDS", "5")}\"")
-        buildConfigField("String", "FILTER_UPDATE_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("FILTER_UPDATE_INTERVAL_SECONDS", "1")}\"")
+        buildConfigField("String", "SCAN_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("SCAN_INTERVAL_SECONDS", "2")}\""")
+        buildConfigField("String", "EVENT_BATCH_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("EVENT_BATCH_INTERVAL_SECONDS", "15")}\")
+        buildConfigField("String", "BEACON_READING_INTERVAL_SECONDS", "${secretsProperties.getProperty("BEACON_READING_INTERVAL_SECONDS", "15")}")
+        buildConfigField("String", "SIGNAL_CHECK_INTERVAL_SECONDS", "${secretsProperties.getProperty("SIGNAL_CHECK_INTERVAL_SECONDS", "2")}")
+        buildConfigField("String", "HEARTBEAT_INTERVAL_SECONDS", "${secretsProperties.getProperty("HEARTBEAT_INTERVAL_SECONDS", "60")}")
+        buildConfigField("String", "EXIT_DELAY_SECONDS", "${secretsProperties.getProperty("EXIT_DELAY_SECONDS", "120")}")
+        buildConfigField("String", "SIGNAL_LOST_THRESHOLD_SECONDS", "${secretsProperties.getProperty("SIGNAL_LOST_THRESHOLD_SECONDS", "5")}")
+        buildConfigField("String", "FILTER_UPDATE_INTERVAL_SECONDS", "${secretsProperties.getProperty("FILTER_UPDATE_INTERVAL_SECONDS", "1")}")
     }
 
     buildTypes {

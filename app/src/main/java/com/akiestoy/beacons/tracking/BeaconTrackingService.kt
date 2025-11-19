@@ -50,7 +50,7 @@ class BeaconTrackingService(
     companion object {
         private val EXIT_DELAY_MS = AppConfig.EXIT_DELAY_MS
         private val HEARTBEAT_INTERVAL_MS = AppConfig.HEARTBEAT_INTERVAL_MS
-        private val SIGNAL_CHECK_INTERVAL_MS = AppConfig.SCAN_INTERVAL_MS // Usa variable de entorno
+        private val SIGNAL_CHECK_INTERVAL_MS = AppConfig.SIGNAL_CHECK_INTERVAL_MS // Usa variable de entorno
         private val SIGNAL_LOST_THRESHOLD_MS = AppConfig.SIGNAL_LOST_THRESHOLD_MS
         private val LOG_INTERVAL_MS = AppConfig.LOG_INTERVAL_MS
     }

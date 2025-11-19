@@ -36,7 +36,8 @@ fun PacketsScreen(viewModel: BeaconViewModel) {
 
     // Filtrar logs según las opciones seleccionadas
     val filteredLogs = scanLogs.filter { log ->
-        val matchesFavorites = !showOnlyFavorites || favorites.contains(log.macAddress)
+        val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(log)
+        val matchesFavorites = !showOnlyFavorites || (identifier != null && favorites.any { it.matches(identifier) })
         val matchesDevice = selectedDevice == null || log.macAddress == selectedDevice
         matchesFavorites && matchesDevice
     }
@@ -220,9 +221,10 @@ fun PacketsScreen(viewModel: BeaconViewModel) {
                     items = filteredLogs,
                     key = { log -> log.id } // Usar el ID único del modelo
                 ) { log ->
+                    val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(log)
                     PacketCard(
                         log = log,
-                        isFavorite = favorites.contains(log.macAddress)
+                        isFavorite = identifier != null && favorites.any { it.matches(identifier) }
                     )
                 }
             }
