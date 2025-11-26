@@ -1,6 +1,7 @@
 package com.akiestoy.beacons
 
 import android.Manifest
+import android.content.Context
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -125,6 +126,52 @@ class MainActivity : ComponentActivity() {
             android.util.Log.i("MainActivity", "✅ Permissions already granted, starting service...")
             // Si ya tiene permisos, iniciar servicio inmediatamente
             startBackgroundService()
+        }
+
+        // Solicitar exclusión de optimización de batería
+        requestBatteryOptimizationExemption()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.i("MainActivity", "📱 onResume called")
+
+        // Verificar y reiniciar el servicio si está detenido pero debería estar activo
+        if (hasPermissions) {
+            val isServiceRunning = ProximityForegroundService.isServiceRunning(this)
+            android.util.Log.i("MainActivity", "🔍 Service running status: $isServiceRunning")
+
+            if (!isServiceRunning) {
+                android.util.Log.w("MainActivity", "⚠️ Service not running! Restarting...")
+                startBackgroundService()
+            } else {
+                android.util.Log.i("MainActivity", "✅ Service already running")
+            }
+        }
+    }
+
+    /**
+     * Solicita al usuario que excluya la app de optimización de batería
+     * para asegurar que el servicio no sea matado por el sistema
+     */
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = android.content.Intent()
+            val packageName = packageName
+            val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                android.util.Log.w("MainActivity", "⚠️ App is being battery optimized! Requesting exemption...")
+                intent.action = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                intent.data = android.net.Uri.parse("package:$packageName")
+                try {
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    android.util.Log.e("MainActivity", "❌ Error requesting battery optimization exemption", e)
+                }
+            } else {
+                android.util.Log.i("MainActivity", "✅ App already excluded from battery optimization")
+            }
         }
     }
 

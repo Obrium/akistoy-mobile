@@ -5,7 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp") version "2.0.21-1.0.25"
-    id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin")
+    // id("com.google.android.libraries.mapsplatform.secrets-gradle-plugin") // Temporarily disabled
 }
 
 android {
@@ -26,9 +26,15 @@ android {
         val secretsProperties = Properties()
         if (secretsFile.exists()) {
             secretsProperties.load(secretsFile.inputStream())
+            println("🔍 secrets.properties exists and loaded")
+            println("🔍 API_BASE_URL from properties: ${secretsProperties.getProperty("API_BASE_URL")}")
+        } else {
+            println("❌ secrets.properties NOT FOUND at: ${secretsFile.absolutePath}")
         }
 
-        buildConfigField("String", "API_BASE_URL", "\"${secretsProperties.getProperty("API_BASE_URL", "http://192.168.100.199:3000")}\"")
+        val apiBaseUrl = secretsProperties.getProperty("API_BASE_URL", "http://192.168.100.199:3000")
+        println("🔍 Final API_BASE_URL value: $apiBaseUrl")
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "SCAN_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("SCAN_INTERVAL_SECONDS", "2")}\"")
         buildConfigField("String", "EVENT_BATCH_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("EVENT_BATCH_INTERVAL_SECONDS", "15")}\"")
         buildConfigField("String", "BEACON_READING_INTERVAL_SECONDS", "\"${secretsProperties.getProperty("BEACON_READING_INTERVAL_SECONDS", "15")}\"")

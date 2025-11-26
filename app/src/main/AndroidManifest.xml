@@ -25,6 +25,9 @@
     <!-- Permiso para solicitar ignorar optimizaciones de batería -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Permiso para recibir evento de inicio del dispositivo -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- Declarar que la app requiere Bluetooth LE -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -63,7 +66,20 @@
             android:name=".service.ProximityForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="location" />
+            android:foregroundServiceType="location"
+            android:stopWithTask="false" />
+
+        <!-- Receiver para reiniciar el servicio automáticamente -->
+        <receiver
+            android:name=".receiver.ServiceRestartReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="com.akiestoy.beacons.RESTART_SERVICE" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

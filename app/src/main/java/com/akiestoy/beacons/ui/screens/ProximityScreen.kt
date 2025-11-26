@@ -20,6 +20,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.service.ProximityForegroundService
+import com.akiestoy.beacons.utils.BatteryOptimizationHelper
 
 /** Pantalla de control del servicio de proximidad */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,16 +32,18 @@ fun ProximityScreen() {
     val favorites by favoritesRepository.favorites.collectAsState()
 
     // Consultar el estado real del servicio - inicializar con el estado actual del servicio
-    var isServiceRunning by remember { mutableStateOf(ProximityForegroundService.isServiceRunning()) }
+    var isServiceRunning by remember { mutableStateOf(ProximityForegroundService.isServiceRunning(context)) }
     var backendUrl by remember { mutableStateOf(BuildConfig.API_BASE_URL + "/") }
     var showUrlDialog by remember { mutableStateOf(false) }
+    var showBatteryInstructionsDialog by remember { mutableStateOf(false) }
+    val manufacturerInfo = remember { BatteryOptimizationHelper.getManufacturerInfo() }
 
     // Actualizar el estado cuando la app regresa del segundo plano
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 // Actualizar el estado cuando la pantalla se reanuda
-                isServiceRunning = ProximityForegroundService.isServiceRunning()
+                isServiceRunning = ProximityForegroundService.isServiceRunning(context)
             }
         }
 
@@ -54,12 +57,18 @@ fun ProximityScreen() {
     // Actualizar el estado periódicamente
     LaunchedEffect(Unit) {
         // Actualizar inmediatamente al cargar
-        isServiceRunning = ProximityForegroundService.isServiceRunning()
+        val initialState = ProximityForegroundService.isServiceRunning(context)
+        android.util.Log.i("ProximityScreen", "🔍 Initial service state: $initialState")
+        isServiceRunning = initialState
 
         // Seguir verificando cada segundo
         while (true) {
             kotlinx.coroutines.delay(1000)
-            isServiceRunning = ProximityForegroundService.isServiceRunning()
+            val currentState = ProximityForegroundService.isServiceRunning(context)
+            if (currentState != isServiceRunning) {
+                android.util.Log.i("ProximityScreen", "🔄 Service state changed: $isServiceRunning -> $currentState")
+            }
+            isServiceRunning = currentState
         }
     }
 
@@ -113,6 +122,40 @@ fun ProximityScreen() {
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
+            // Advertencia de optimización de batería si el fabricante tiene configuraciones especiales
+            if (manufacturerInfo.hasSpecialSettings) {
+                Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors =
+                                CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                )
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text(
+                                text = "⚡ ${manufacturerInfo.name} Detectado",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                                text = "Para que el servicio funcione correctamente en segundo plano, debes configurar la optimización de batería.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                                onClick = { showBatteryInstructionsDialog = true },
+                                modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Ver Instrucciones")
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             // Estado del servicio
             ServiceStatusCard(isRunning = isServiceRunning, favoritesCount = favorites.size)
 
@@ -148,6 +191,18 @@ fun ProximityScreen() {
                 onConfirm = { newUrl ->
                     backendUrl = newUrl
                     showUrlDialog = false
+                }
+        )
+    }
+
+    // Diálogo de instrucciones de batería
+    if (showBatteryInstructionsDialog) {
+        BatteryInstructionsDialog(
+                manufacturerInfo = manufacturerInfo,
+                onDismiss = { showBatteryInstructionsDialog = false },
+                onOpenSettings = {
+                    BatteryOptimizationHelper.openBatterySettings(context)
+                    showBatteryInstructionsDialog = false
                 }
         )
     }
@@ -367,5 +422,65 @@ fun BackendUrlDialog(currentUrl: String, onDismiss: () -> Unit, onConfirm: (Stri
             },
             confirmButton = { TextButton(onClick = { onConfirm(url) }) { Text("Guardar") } },
             dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
+}
+
+@Composable
+fun BatteryInstructionsDialog(
+        manufacturerInfo: BatteryOptimizationHelper.ManufacturerInfo,
+        onDismiss: () -> Unit,
+        onOpenSettings: () -> Unit
+) {
+    AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("⚡ Optimización de Batería - ${manufacturerInfo.name}") },
+            text = {
+                Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                            text = "Para que el servicio de beacons funcione correctamente en segundo plano, sigue estos pasos:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                            text = manufacturerInfo.instructions,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Card(
+                            colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer
+                            )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                    text = "⚠️ Importante",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                    text = "Sin estos ajustes, el sistema matará el servicio cuando minimices la app.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = onOpenSettings) {
+                    Text("Abrir Configuración")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Cerrar")
+                }
+            }
     )
 }

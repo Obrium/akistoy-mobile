@@ -67,8 +67,25 @@ class ProximityForegroundService : Service() {
 
         /**
          * Verifica si el servicio está actualmente en ejecución
+         * Usa ActivityManager para verificación robusta
          */
-        fun isServiceRunning(): Boolean = isRunning
+        @Suppress("DEPRECATION")
+        fun isServiceRunning(context: Context): Boolean {
+            try {
+                val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+                for (service in manager.getRunningServices(Integer.MAX_VALUE)) {
+                    if (ProximityForegroundService::class.java.name == service.service.className) {
+                        Log.d("ProximityForegroundService", "✅ Service is running (verified by ActivityManager)")
+                        return true
+                    }
+                }
+                Log.d("ProximityForegroundService", "❌ Service is NOT running (verified by ActivityManager)")
+                return false
+            } catch (e: Exception) {
+                Log.e("ProximityForegroundService", "Error checking service status", e)
+                return isRunning  // Fallback a la variable estática
+            }
+        }
     }
 
     override fun onCreate() {
@@ -94,16 +111,33 @@ class ProximityForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "▶️ Service started")
+        Log.i(TAG, "▶️ Service started (startId: $startId)")
+
+        if (intent == null) {
+            Log.w(TAG, "⚠️ Service restarted by system (intent is null)")
+        }
 
         // Iniciar escaneo
         startProximityScanning()
 
+        // START_STICKY: Si el sistema mata el servicio, lo reiniciará automáticamente
+        // pero sin reenviar el Intent original (será null)
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        Log.w(TAG, "⚠️ Task removed - scheduling service restart")
+
+        // Enviar broadcast para reiniciar el servicio
+        val restartServiceIntent = Intent("com.akiestoy.beacons.RESTART_SERVICE")
+        restartServiceIntent.setPackage(packageName)
+        sendBroadcast(restartServiceIntent)
+
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
@@ -119,15 +153,30 @@ class ProximityForegroundService : Service() {
         }
 
         // Detener escaneo
-        proximityScanner.stopScanning()
+        try {
+            proximityScanner.stopScanning()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping scanner", e)
+        }
 
         // Limpiar tracking service
-        trackingService.cleanup()
+        try {
+            trackingService.cleanup()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up tracking service", e)
+        }
 
         // Cancelar coroutines
         serviceScope.cancel()
 
         Log.d(TAG, "Final state: ${trackingService.getStateInfo()}")
+
+        // Enviar broadcast para reiniciar el servicio si fue detenido inesperadamente
+        val restartServiceIntent = Intent("com.akiestoy.beacons.RESTART_SERVICE")
+        restartServiceIntent.setPackage(packageName)
+        sendBroadcast(restartServiceIntent)
+
+        Log.i(TAG, "📡 Restart broadcast sent")
 
         super.onDestroy()
     }
@@ -258,9 +307,11 @@ class ProximityForegroundService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Servicio de Proximidad",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_DEFAULT  // Cambiado a DEFAULT para que sea más visible
             ).apply {
-                description = "Notificaciones del servicio de proximidad BLE"
+                description = "Notificaciones del servicio de proximidad BLE - mantiene el escaneo activo en segundo plano"
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
 
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -281,11 +332,16 @@ class ProximityForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("AkiEstoy - Proximidad")
+            .setContentTitle("AkiEstoy - Escaneo Activo")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)
-            .setOngoing(true)
+            .setOngoing(true)  // No se puede deslizar para cerrar
+            .setAutoCancel(false)  // No se cierra automáticamente
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)  // Prioridad normal para que sea visible
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)  // Categoría de servicio
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)  // Visible en lockscreen
+            .setShowWhen(true)  // Mostrar cuándo se inició
             .build()
     }
 

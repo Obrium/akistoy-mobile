@@ -78,9 +78,9 @@ sealed class NavDestination(val route: String, val title: String, val icon: Imag
          */
         fun getItems(isSuperAdminAuthenticated: Boolean): List<NavDestination> {
             return if (isSuperAdminAuthenticated) {
-                listOf(Home, Configuration)
+                listOf(Home, Scanner, Proximity, Configuration)
             } else {
-                listOf(Home)
+                listOf(Home, Scanner, Proximity)
             }
         }
     }
