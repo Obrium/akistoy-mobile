@@ -4,10 +4,14 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.akiestoy.beacons.api.ApiClient
+import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.config.AppConfig
 import com.akiestoy.beacons.model.BLEScanLog
 import com.akiestoy.beacons.model.BeaconDetection
+import com.akiestoy.beacons.model.Zone
+import com.akiestoy.beacons.model.api.ConfigureBeaconRequest
 import com.akiestoy.beacons.scanner.BeaconScanner
 import com.akiestoy.beacons.scanner.GenericBLEScanner
 import com.akiestoy.beacons.service.BeaconReadingService
@@ -60,10 +64,29 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     // Favoritos (BeaconIdentifiers con UUID + major + minor)
     val favorites: StateFlow<Set<com.akiestoy.beacons.model.BeaconIdentifier>> = favoritesRepository.favorites
-    
+
     // Lista de beacons favoritos
     private val _favoriteBeacons = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val favoriteBeacons: StateFlow<List<BLEScanLog>> = _favoriteBeacons.asStateFlow()
+
+    // Estado para diálogo de configuración de beacon
+    private val _beaconToConfigureFlow = MutableStateFlow<BLEScanLog?>(null)
+    val beaconToConfigure: StateFlow<BLEScanLog?> = _beaconToConfigureFlow.asStateFlow()
+
+    // Lista de zonas disponibles
+    private val _zones = MutableStateFlow<List<Zone>>(emptyList())
+    val zones: StateFlow<List<Zone>> = _zones.asStateFlow()
+
+    // Estado de carga para configuración
+    private val _isConfiguringBeacon = MutableStateFlow(false)
+    val isConfiguringBeacon: StateFlow<Boolean> = _isConfiguringBeacon.asStateFlow()
+
+    // Mensaje de resultado de configuración
+    private val _configurationResult = MutableStateFlow<ConfigurationResult?>(null)
+    val configurationResult: StateFlow<ConfigurationResult?> = _configurationResult.asStateFlow()
+
+    // Database
+    private val database = AppDatabase.getDatabase(application)
 
     // Servicio para enviar lecturas de beacons cada 10 segundos
     private val beaconReadingService = BeaconReadingService(
@@ -110,10 +133,17 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Alterna el estado de favorito de un beacon usando BeaconIdentifier
+     * Si se quita de favoritos, también elimina del servidor
      */
     fun toggleFavorite(identifier: com.akiestoy.beacons.model.BeaconIdentifier) {
+        val wasFavorite = favorites.value.any { it.matches(identifier) }
         favoritesRepository.toggleFavorite(identifier)
         updateFavoriteBeacons(_uniqueDevices.value)
+
+        // Si se quitó de favoritos, eliminar del servidor
+        if (wasFavorite) {
+            deleteBeaconFromServer(identifier)
+        }
     }
 
     /**
@@ -123,6 +153,44 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleFavorite(macAddress: String) {
         favoritesRepository.toggleFavorite(macAddress)
         updateFavoriteBeacons(_uniqueDevices.value)
+    }
+
+    /**
+     * Elimina un beacon del servidor usando sus identifiers (UUID + major + minor)
+     */
+    private fun deleteBeaconFromServer(identifier: com.akiestoy.beacons.model.BeaconIdentifier) {
+        viewModelScope.launch {
+            try {
+                // Obtener usuario actual para token y tenantId
+                val user = database.userDao().getCurrentUserOnce()
+                if (user == null) {
+                    Log.w("BeaconViewModel", "⚠️ No hay usuario autenticado para eliminar beacon")
+                    return@launch
+                }
+
+                Log.i("BeaconViewModel", "🗑️ Eliminando beacon del servidor: uuid=${identifier.uuid}, major=${identifier.major}, minor=${identifier.minor}")
+
+                val response = ApiClient.authApi.deleteBeaconByIdentifiers(
+                    tenantId = user.tenantId,
+                    uuid = identifier.uuid,
+                    major = identifier.major,
+                    minor = identifier.minor,
+                    authorization = "Bearer ${user.accessToken}"
+                )
+
+                if (response.isSuccessful) {
+                    Log.i("BeaconViewModel", "✅ Beacon eliminado del servidor exitosamente")
+                    _configurationResult.value = ConfigurationResult.Success("Beacon eliminado del servidor")
+                } else {
+                    val errorBody = response.errorBody()?.string() ?: "Error desconocido"
+                    Log.e("BeaconViewModel", "❌ Error al eliminar beacon del servidor: ${response.code()} - $errorBody")
+                    // No mostrar error al usuario, el favorito local ya se quitó
+                }
+            } catch (e: Exception) {
+                Log.e("BeaconViewModel", "❌ Excepción al eliminar beacon del servidor", e)
+                // No mostrar error al usuario, el favorito local ya se quitó
+            }
+        }
     }
 
     /**
@@ -271,6 +339,127 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     fun toggleFavoritesFilter() {
         _showOnlyFavorites.value = !_showOnlyFavorites.value
         Log.d("BeaconViewModel", "Filtro de favoritos: ${if (_showOnlyFavorites.value) "ACTIVADO" else "DESACTIVADO"}")
+    }
+
+    /**
+     * Inicia el proceso de configuración de un beacon
+     * Carga las zonas y muestra el diálogo
+     */
+    fun startBeaconConfiguration(scanLog: BLEScanLog) {
+        Log.i("BeaconViewModel", "🔧 startBeaconConfiguration llamado para MAC: ${scanLog.macAddress}")
+        Log.i("BeaconViewModel", "🔧 iBeaconData: ${scanLog.iBeaconData}")
+
+        if (scanLog.iBeaconData == null) {
+            Log.w("BeaconViewModel", "⚠️ No se puede configurar un dispositivo sin datos iBeacon")
+            _configurationResult.value = ConfigurationResult.Error("Este dispositivo no es un iBeacon válido")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                Log.i("BeaconViewModel", "🔍 Cargando zonas desde la base de datos...")
+                // Cargar zonas desde la base de datos local
+                val zonesFromDb = database.zoneDao().getAllZonesOnce()
+                _zones.value = zonesFromDb
+                Log.i("BeaconViewModel", "✅ Cargadas ${zonesFromDb.size} zonas para configuración")
+                zonesFromDb.forEach { zone ->
+                    Log.d("BeaconViewModel", "   📍 Zona: ${zone.name} (${zone.id})")
+                }
+
+                // Mostrar el diálogo
+                Log.i("BeaconViewModel", "📱 Mostrando diálogo de configuración...")
+                _beaconToConfigureFlow.value = scanLog
+            } catch (e: Exception) {
+                Log.e("BeaconViewModel", "❌ Error al cargar zonas", e)
+                _configurationResult.value = ConfigurationResult.Error("Error al cargar zonas: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Cancela el diálogo de configuración
+     */
+    fun cancelBeaconConfiguration() {
+        _beaconToConfigureFlow.value = null
+        _isConfiguringBeacon.value = false
+    }
+
+    /**
+     * Confirma y envía la configuración del beacon al servidor
+     */
+    fun confirmBeaconConfiguration(beaconName: String, zoneName: String) {
+        val scanLog = _beaconToConfigureFlow.value ?: return
+        val iBeacon = scanLog.iBeaconData ?: return
+
+        viewModelScope.launch {
+            _isConfiguringBeacon.value = true
+
+            try {
+                // Obtener usuario actual para token y datos del tenant
+                val user = database.userDao().getCurrentUserOnce()
+                if (user == null) {
+                    _configurationResult.value = ConfigurationResult.Error("No hay usuario autenticado")
+                    _isConfiguringBeacon.value = false
+                    return@launch
+                }
+
+                val request = ConfigureBeaconRequest(
+                    mac = scanLog.macAddress,
+                    uuid = iBeacon.uuid,
+                    major = iBeacon.major,
+                    minor = iBeacon.minor,
+                    beaconName = beaconName,
+                    zoneName = zoneName,
+                    beaconType = "tracking",
+                    tenantId = user.tenantId,
+                    companyId = user.companyId,
+                    txPower = iBeacon.txPower,
+                    model = "ESP32"
+                )
+
+                Log.d("BeaconViewModel", "Enviando configuración de beacon: $request")
+
+                val response = ApiClient.authApi.configureBeacon(
+                    tenantId = user.tenantId,
+                    authorization = "Bearer ${user.accessToken}",
+                    request = request
+                )
+
+                if (response.isSuccessful) {
+                    Log.i("BeaconViewModel", "Beacon configurado exitosamente: ${response.body()?.message}")
+                    _configurationResult.value = ConfigurationResult.Success("Beacon '$beaconName' configurado en zona '$zoneName'")
+
+                    // Agregar a favoritos automáticamente
+                    val identifier = com.akiestoy.beacons.model.BeaconIdentifier(
+                        uuid = iBeacon.uuid,
+                        major = iBeacon.major,
+                        minor = iBeacon.minor,
+                        macAddress = scanLog.macAddress
+                    )
+                    favoritesRepository.addFavorites(listOf(identifier))
+                    updateFavoriteBeacons(_uniqueDevices.value)
+
+                    // Cerrar el diálogo
+                    _beaconToConfigureFlow.value = null
+                } else {
+                    val errorBody = response.errorBody()?.string() ?: "Error desconocido"
+                    Log.e("BeaconViewModel", "Error al configurar beacon: ${response.code()} - $errorBody")
+                    _configurationResult.value = ConfigurationResult.Error("Error ${response.code()}: $errorBody")
+                }
+            } catch (e: Exception) {
+                Log.e("BeaconViewModel", "Excepción al configurar beacon", e)
+                _configurationResult.value = ConfigurationResult.Error("Error de conexión: ${e.message}")
+            } finally {
+                _isConfiguringBeacon.value = false
+            }
+        }
+    }
+
+    /**
+     * Limpia el resultado de configuración
+     */
+    fun clearConfigurationResult() {
+        _configurationResult.value = null
     }
 
     /**
@@ -424,4 +613,12 @@ sealed class BeaconUiState {
     data class ScanningWithDevices(val deviceCount: Int) : BeaconUiState()
     data class DetectingBeacons(val count: Int) : BeaconUiState()
     data class Error(val message: String) : BeaconUiState()
+}
+
+/**
+ * Resultado de la configuración de un beacon
+ */
+sealed class ConfigurationResult {
+    data class Success(val message: String) : ConfigurationResult()
+    data class Error(val message: String) : ConfigurationResult()
 }

@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.akiestoy.beacons.model.BeaconDetection
 import com.akiestoy.beacons.model.ProximityZone
+import com.akiestoy.beacons.ui.components.ConfigureBeaconDialog
 import com.akiestoy.beacons.utils.DeviceIdManager
 import android.os.Build
 import android.provider.Settings
@@ -43,6 +45,27 @@ fun BeaconScreen(
     val filteredScanLogs by viewModel.filteredScanLogs.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     var showDeviceInfo by remember { mutableStateOf(false) }
+
+    // Estados para configuración de beacon
+    val beaconToConfigure by viewModel.beaconToConfigure.collectAsState()
+    val zones by viewModel.zones.collectAsState()
+    val isConfiguringBeacon by viewModel.isConfiguringBeacon.collectAsState()
+    val configurationResult by viewModel.configurationResult.collectAsState()
+
+    // Snackbar para mostrar resultados
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Mostrar snackbar cuando hay resultado de configuración
+    LaunchedEffect(configurationResult) {
+        configurationResult?.let { result ->
+            val message = when (result) {
+                is ConfigurationResult.Success -> result.message
+                is ConfigurationResult.Error -> result.message
+            }
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearConfigurationResult()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -97,11 +120,30 @@ fun BeaconScreen(
         ) {
             Icon(Icons.Default.Info, contentDescription = "Device Info")
         }
+
+        // Snackbar host
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 
     // Diálogo de información del dispositivo
     if (showDeviceInfo) {
         DeviceInfoDialog(onDismiss = { showDeviceInfo = false })
+    }
+
+    // Diálogo de configuración de beacon
+    beaconToConfigure?.let { scanLog ->
+        ConfigureBeaconDialog(
+            scanLog = scanLog,
+            zones = zones,
+            isLoading = isConfiguringBeacon,
+            onDismiss = { viewModel.cancelBeaconConfiguration() },
+            onConfirm = { beaconName, zoneName ->
+                viewModel.confirmBeaconConfiguration(beaconName, zoneName)
+            }
+        )
     }
 }
 
@@ -613,19 +655,39 @@ fun ScanLogCard(
                 }
             }
             
-            // Botón de favorito
-            IconButton(onClick = {
-                val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(log)
-                if (identifier != null) {
-                    viewModel.toggleFavorite(identifier)
-                } else {
-                    viewModel.toggleFavorite(log.macAddress)
-                }
-            }) {
+            // Botón de configurar/favorito - usando Box con clickable para mejor respuesta
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isFavorite) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                    .clickable {
+                        android.util.Log.i("BeaconScreen", "❤️ CORAZÓN TOCADO! MAC: ${log.macAddress}, isFavorite: $isFavorite")
+                        if (isFavorite) {
+                            // Si ya es favorito, quitarlo de favoritos
+                            android.util.Log.i("BeaconScreen", "🔄 Quitando de favoritos...")
+                            val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromScanLog(log)
+                            if (identifier != null) {
+                                viewModel.toggleFavorite(identifier)
+                            } else {
+                                viewModel.toggleFavorite(log.macAddress)
+                            }
+                        } else {
+                            // Si no es favorito, abrir diálogo de configuración
+                            android.util.Log.i("BeaconScreen", "🔧 Abriendo diálogo de configuración...")
+                            viewModel.startBeaconConfiguration(log)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
-                    tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                    contentDescription = if (isFavorite) "Quitar de favoritos" else "Configurar beacon",
+                    tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
