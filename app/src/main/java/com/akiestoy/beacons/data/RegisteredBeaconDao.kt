@@ -1,6 +1,7 @@
 package com.akiestoy.beacons.data
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -39,4 +40,7 @@ interface RegisteredBeaconDao {
 
     @Query("DELETE FROM registered_beacons WHERE zoneId = :zoneId")
     suspend fun deleteBeaconsByZone(zoneId: String)
+
+    @Delete
+    suspend fun deleteBeacon(beacon: RegisteredBeacon)
 }

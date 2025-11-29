@@ -120,6 +120,8 @@ class UserRepository(
                                     tenantId = beaconResponse.tenantId,
                                     companyId = beaconResponse.companyId,
                                     advUuid = beaconResponse.advUuid.lowercase(),
+                                    mac = beaconResponse.mac,
+                                    beaconName = beaconResponse.beaconName,
                                     major = beaconResponse.major,
                                     minor = beaconResponse.minor,
                                     txPower = beaconResponse.txPower,
@@ -137,7 +139,7 @@ class UserRepository(
                         registeredBeaconDao.insertBeacons(allBeacons)
                         Log.i(TAG, "✅ Se guardaron ${allBeacons.size} beacons en la base de datos")
                         allBeacons.forEach { beacon ->
-                            Log.i(TAG, "   📍 Beacon: ${beacon.zoneName} (UUID: ${beacon.advUuid}, major: ${beacon.major}, minor: ${beacon.minor})")
+                            Log.i(TAG, "   📍 Beacon: ${beacon.beaconName ?: beacon.zoneName} (UUID: ${beacon.advUuid}, MAC: ${beacon.mac ?: "N/A"}, major: ${beacon.major}, minor: ${beacon.minor})")
                         }
 
                         // Los beacons se marcarán como favoritos automáticamente cuando se detecten
@@ -297,6 +299,8 @@ class UserRepository(
                             tenantId = beaconResponse.tenantId,
                             companyId = beaconResponse.companyId,
                             advUuid = beaconResponse.advUuid.lowercase(),
+                            mac = beaconResponse.mac,
+                            beaconName = beaconResponse.beaconName,
                             major = beaconResponse.major,
                             minor = beaconResponse.minor,
                             txPower = beaconResponse.txPower,
@@ -315,6 +319,9 @@ class UserRepository(
                 registeredBeaconDao.deleteAll()
                 registeredBeaconDao.insertBeacons(allBeacons)
                 Log.i(TAG, "✅ Se actualizaron ${allBeacons.size} beacons en la base de datos")
+                allBeacons.forEach { beacon ->
+                    Log.i(TAG, "   📍 Beacon: ${beacon.beaconName ?: beacon.zoneName} (MAC: ${beacon.mac ?: "N/A"})")
+                }
 
                 // Los beacons se marcarán como favoritos automáticamente cuando se detecten
                 Log.i(TAG, "ℹ️ Los beacons se marcarán como favoritos automáticamente al ser detectados")

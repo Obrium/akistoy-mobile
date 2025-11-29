@@ -13,7 +13,7 @@ import com.akiestoy.beacons.model.RegisteredBeacon
  */
 @Database(
     entities = [User::class, PendingEvent::class, Zone::class, RegisteredBeacon::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -12,6 +12,7 @@ import com.akiestoy.beacons.model.BLEScanLog
 import com.akiestoy.beacons.model.BeaconDetection
 import com.akiestoy.beacons.model.Zone
 import com.akiestoy.beacons.model.api.ConfigureBeaconRequest
+import com.akiestoy.beacons.model.api.CreateZoneRequest
 import com.akiestoy.beacons.scanner.BeaconScanner
 import com.akiestoy.beacons.scanner.GenericBLEScanner
 import com.akiestoy.beacons.service.BeaconReadingService
@@ -69,6 +70,10 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     private val _favoriteBeacons = MutableStateFlow<List<BLEScanLog>>(emptyList())
     val favoriteBeacons: StateFlow<List<BLEScanLog>> = _favoriteBeacons.asStateFlow()
 
+    // Mapa de beacons registrados (MAC -> zoneName) para mostrar zona en Home
+    private val _registeredBeaconsZoneMap = MutableStateFlow<Map<String, String>>(emptyMap())
+    val registeredBeaconsZoneMap: StateFlow<Map<String, String>> = _registeredBeaconsZoneMap.asStateFlow()
+
     // Estado para diálogo de configuración de beacon
     private val _beaconToConfigureFlow = MutableStateFlow<BLEScanLog?>(null)
     val beaconToConfigure: StateFlow<BLEScanLog?> = _beaconToConfigureFlow.asStateFlow()
@@ -80,6 +85,10 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     // Estado de carga para configuración
     private val _isConfiguringBeacon = MutableStateFlow(false)
     val isConfiguringBeacon: StateFlow<Boolean> = _isConfiguringBeacon.asStateFlow()
+
+    // Estado de carga para crear zona
+    private val _isCreatingZone = MutableStateFlow(false)
+    val isCreatingZone: StateFlow<Boolean> = _isCreatingZone.asStateFlow()
 
     // Mensaje de resultado de configuración
     private val _configurationResult = MutableStateFlow<ConfigurationResult?>(null)
@@ -109,10 +118,24 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     init {
-        // Observar cambios en dispositivos únicos o favoritos para actualizar la lista de favoritos
+        // Sincronizar beacons registrados de la BD a favoritos al iniciar
+        // Esto asegura que el estado ACTIVO se muestre inmediatamente si hay beacons cerca
+        viewModelScope.launch {
+            syncRegisteredBeaconsToFavorites()
+        }
+
+        // Observar cambios en dispositivos únicos para actualizar la lista de favoritos
         viewModelScope.launch {
             _uniqueDevices.collect { devices ->
                 updateFavoriteBeacons(devices)
+            }
+        }
+
+        // También observar cambios en favoritos para re-filtrar dispositivos
+        viewModelScope.launch {
+            favoritesRepository.favorites.collect { _ ->
+                // Cuando cambian los favoritos, re-filtrar con los dispositivos actuales
+                updateFavoriteBeacons(_uniqueDevices.value)
             }
         }
     }
@@ -121,7 +144,13 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
      * Actualiza la lista de beacons favoritos (solo dispositivos únicos)
      */
     private fun updateFavoriteBeacons(devices: List<BLEScanLog>) {
-        _favoriteBeacons.value = favoritesRepository.getFavoriteBeacons(devices)
+        val favoriteBeacons = favoritesRepository.getFavoriteBeacons(devices)
+        _favoriteBeacons.value = favoriteBeacons
+
+        // Log para debug
+        if (favoriteBeacons.isNotEmpty()) {
+            Log.d("BeaconViewModel", "📍 updateFavoriteBeacons: ${favoriteBeacons.size} beacons favoritos activos")
+        }
     }
 
     /**
@@ -343,27 +372,56 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
     /**
      * Inicia el proceso de configuración de un beacon
-     * Carga las zonas y muestra el diálogo
+     * Carga las zonas del servidor y muestra el diálogo
      */
     fun startBeaconConfiguration(scanLog: BLEScanLog) {
         Log.i("BeaconViewModel", "🔧 startBeaconConfiguration llamado para MAC: ${scanLog.macAddress}")
         Log.i("BeaconViewModel", "🔧 iBeaconData: ${scanLog.iBeaconData}")
 
+        // Permitir configuración incluso sin iBeaconData (para dispositivos BLE genéricos)
         if (scanLog.iBeaconData == null) {
-            Log.w("BeaconViewModel", "⚠️ No se puede configurar un dispositivo sin datos iBeacon")
-            _configurationResult.value = ConfigurationResult.Error("Este dispositivo no es un iBeacon válido")
-            return
+            Log.w("BeaconViewModel", "⚠️ Dispositivo sin datos iBeacon, configurando como BLE genérico")
         }
 
         viewModelScope.launch {
             try {
-                Log.i("BeaconViewModel", "🔍 Cargando zonas desde la base de datos...")
-                // Cargar zonas desde la base de datos local
-                val zonesFromDb = database.zoneDao().getAllZonesOnce()
-                _zones.value = zonesFromDb
-                Log.i("BeaconViewModel", "✅ Cargadas ${zonesFromDb.size} zonas para configuración")
-                zonesFromDb.forEach { zone ->
-                    Log.d("BeaconViewModel", "   📍 Zona: ${zone.name} (${zone.id})")
+                Log.i("BeaconViewModel", "🔍 Cargando zonas desde el servidor...")
+
+                // Usar IDs del usuario o los fijos de testing
+                val user = database.userDao().getCurrentUserOnce()
+                val tenantId = user?.tenantId ?: AppConfig.DEFAULT_TENANT_ID
+                val companyId = user?.companyId ?: AppConfig.DEFAULT_COMPANY_ID
+
+                Log.i("BeaconViewModel", "📍 Usando tenantId: $tenantId, companyId: $companyId")
+
+                // Cargar zonas directamente del servidor
+                val response = ApiClient.authApi.getZones(tenantId, companyId)
+
+                if (response.isSuccessful && response.body() != null) {
+                    val zonesFromServer = response.body()!!.map { zoneResponse ->
+                        Zone(
+                            id = zoneResponse.id,
+                            tenantId = zoneResponse.tenantId,
+                            companyId = zoneResponse.companyId,
+                            name = zoneResponse.name,
+                            type = zoneResponse.type,
+                            rssiThresholdNear = zoneResponse.rssiThresholdNear,
+                            rssiThresholdFar = zoneResponse.rssiThresholdFar,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    }
+                    _zones.value = zonesFromServer
+                    Log.i("BeaconViewModel", "✅ Cargadas ${zonesFromServer.size} zonas del servidor")
+                    zonesFromServer.forEach { zone ->
+                        Log.d("BeaconViewModel", "   📍 Zona: ${zone.name} (${zone.id})")
+                    }
+                } else {
+                    Log.w("BeaconViewModel", "⚠️ Error al cargar zonas del servidor: ${response.code()}")
+                    // Intentar cargar de la base de datos local como fallback
+                    val zonesFromDb = database.zoneDao().getAllZonesOnce()
+                    _zones.value = zonesFromDb
+                    Log.i("BeaconViewModel", "📦 Usando ${zonesFromDb.size} zonas de la base de datos local")
                 }
 
                 // Mostrar el diálogo
@@ -371,7 +429,80 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 _beaconToConfigureFlow.value = scanLog
             } catch (e: Exception) {
                 Log.e("BeaconViewModel", "❌ Error al cargar zonas", e)
-                _configurationResult.value = ConfigurationResult.Error("Error al cargar zonas: ${e.message}")
+                // Intentar cargar de la base de datos local como fallback
+                try {
+                    val zonesFromDb = database.zoneDao().getAllZonesOnce()
+                    _zones.value = zonesFromDb
+                    Log.i("BeaconViewModel", "📦 Fallback: ${zonesFromDb.size} zonas de la base de datos local")
+                    _beaconToConfigureFlow.value = scanLog
+                } catch (dbError: Exception) {
+                    _configurationResult.value = ConfigurationResult.Error("Error al cargar zonas: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Crea una nueva zona en el servidor
+     */
+    fun createZone(zoneName: String) {
+        viewModelScope.launch {
+            _isCreatingZone.value = true
+
+            try {
+                val user = database.userDao().getCurrentUserOnce()
+                val tenantId = user?.tenantId ?: AppConfig.DEFAULT_TENANT_ID
+                val companyId = user?.companyId ?: AppConfig.DEFAULT_COMPANY_ID
+                val token = user?.accessToken
+
+                Log.i("BeaconViewModel", "🏗️ Creando zona: $zoneName")
+                Log.i("BeaconViewModel", "   tenantId: $tenantId, companyId: $companyId")
+
+                // Si no hay token, intentar crear sin autenticación (puede fallar dependiendo del backend)
+                val authHeader = if (token != null) "Bearer $token" else ""
+
+                val request = CreateZoneRequest(
+                    tenantId = tenantId,
+                    companyId = companyId,
+                    name = zoneName,
+                    type = "room"
+                )
+
+                val response = ApiClient.authApi.createZone(
+                    tenantId = tenantId,
+                    authorization = authHeader,
+                    request = request
+                )
+
+                if (response.isSuccessful && response.body() != null) {
+                    val createdZone = response.body()!!
+                    Log.i("BeaconViewModel", "✅ Zona creada: ${createdZone.zone.name} (${createdZone.zone.id})")
+
+                    // Agregar la nueva zona a la lista
+                    val newZone = Zone(
+                        id = createdZone.zone.id,
+                        tenantId = tenantId,
+                        companyId = companyId,
+                        name = createdZone.zone.name,
+                        type = "room",
+                        rssiThresholdNear = -65,
+                        rssiThresholdFar = -80,
+                        createdAt = System.currentTimeMillis(),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    _zones.value = _zones.value + newZone
+
+                    _configurationResult.value = ConfigurationResult.Success("Zona '${zoneName}' creada exitosamente")
+                } else {
+                    val errorBody = response.errorBody()?.string() ?: "Error desconocido"
+                    Log.e("BeaconViewModel", "❌ Error al crear zona: ${response.code()} - $errorBody")
+                    _configurationResult.value = ConfigurationResult.Error("Error al crear zona: $errorBody")
+                }
+            } catch (e: Exception) {
+                Log.e("BeaconViewModel", "❌ Excepción al crear zona", e)
+                _configurationResult.value = ConfigurationResult.Error("Error de conexión: ${e.message}")
+            } finally {
+                _isCreatingZone.value = false
             }
         }
     }
@@ -389,39 +520,47 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
      */
     fun confirmBeaconConfiguration(beaconName: String, zoneName: String) {
         val scanLog = _beaconToConfigureFlow.value ?: return
-        val iBeacon = scanLog.iBeaconData ?: return
+        val iBeacon = scanLog.iBeaconData
 
         viewModelScope.launch {
             _isConfiguringBeacon.value = true
 
             try {
-                // Obtener usuario actual para token y datos del tenant
+                // Obtener usuario actual o usar IDs fijos de testing
                 val user = database.userDao().getCurrentUserOnce()
-                if (user == null) {
-                    _configurationResult.value = ConfigurationResult.Error("No hay usuario autenticado")
-                    _isConfiguringBeacon.value = false
-                    return@launch
-                }
+                val tenantId = user?.tenantId ?: AppConfig.DEFAULT_TENANT_ID
+                val companyId = user?.companyId ?: AppConfig.DEFAULT_COMPANY_ID
+                val authHeader = if (user?.accessToken != null) "Bearer ${user.accessToken}" else ""
+
+                Log.i("BeaconViewModel", "📍 Configurando beacon con tenantId: $tenantId, companyId: $companyId")
+
+                // Para dispositivos sin iBeaconData, generar UUID basado en MAC y usar valores por defecto
+                val uuid = iBeacon?.uuid ?: java.util.UUID.nameUUIDFromBytes(scanLog.macAddress.toByteArray()).toString()
+                val major = iBeacon?.major ?: 0
+                val minor = iBeacon?.minor ?: 0
+                val txPower = iBeacon?.txPower ?: -59
+
+                Log.i("BeaconViewModel", "📍 Beacon: uuid=$uuid, major=$major, minor=$minor, mac=${scanLog.macAddress}")
 
                 val request = ConfigureBeaconRequest(
                     mac = scanLog.macAddress,
-                    uuid = iBeacon.uuid,
-                    major = iBeacon.major,
-                    minor = iBeacon.minor,
+                    uuid = uuid,
+                    major = major,
+                    minor = minor,
                     beaconName = beaconName,
                     zoneName = zoneName,
                     beaconType = "tracking",
-                    tenantId = user.tenantId,
-                    companyId = user.companyId,
-                    txPower = iBeacon.txPower,
+                    tenantId = tenantId,
+                    companyId = companyId,
+                    txPower = txPower,
                     model = "ESP32"
                 )
 
                 Log.d("BeaconViewModel", "Enviando configuración de beacon: $request")
 
                 val response = ApiClient.authApi.configureBeacon(
-                    tenantId = user.tenantId,
-                    authorization = "Bearer ${user.accessToken}",
+                    tenantId = tenantId,
+                    authorization = authHeader,
                     request = request
                 )
 
@@ -431,9 +570,9 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
                     // Agregar a favoritos automáticamente
                     val identifier = com.akiestoy.beacons.model.BeaconIdentifier(
-                        uuid = iBeacon.uuid,
-                        major = iBeacon.major,
-                        minor = iBeacon.minor,
+                        uuid = uuid,
+                        major = major,
+                        minor = minor,
                         macAddress = scanLog.macAddress
                     )
                     favoritesRepository.addFavorites(listOf(identifier))
@@ -499,6 +638,39 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
+     * Sincroniza los beacons registrados de la BD a los favoritos locales
+     * Esto se llama al iniciar el ViewModel para asegurar que los favoritos estén poblados
+     */
+    private suspend fun syncRegisteredBeaconsToFavorites() {
+        try {
+            val registeredBeacons = database.registeredBeaconDao().getAllActiveBeaconsOnce()
+
+            if (registeredBeacons.isEmpty()) {
+                Log.d("BeaconViewModel", "📍 No hay beacons registrados en la BD para sincronizar")
+                return
+            }
+
+            Log.i("BeaconViewModel", "🔄 Sincronizando ${registeredBeacons.size} beacons registrados a favoritos...")
+
+            val identifiersToAdd = registeredBeacons.map { beacon ->
+                com.akiestoy.beacons.model.BeaconIdentifier(
+                    uuid = beacon.advUuid,
+                    major = beacon.major,
+                    minor = beacon.minor,
+                    macAddress = beacon.mac ?: ""
+                )
+            }
+
+            if (identifiersToAdd.isNotEmpty()) {
+                favoritesRepository.addFavorites(identifiersToAdd)
+                Log.i("BeaconViewModel", "✅ Sincronizados ${identifiersToAdd.size} beacons registrados a favoritos en init")
+            }
+        } catch (e: Exception) {
+            Log.e("BeaconViewModel", "❌ Error al sincronizar beacons registrados", e)
+        }
+    }
+
+    /**
      * Inicia el escaneo automático de beacons registrados
      * Se conectará automáticamente al beacon más cercano
      */
@@ -514,8 +686,21 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                 }
 
                 Log.i("BeaconViewModel", "🔍 Iniciando escaneo automático de ${registeredBeacons.size} beacons registrados")
-                registeredBeacons.forEach { beacon ->
+
+                // Sincronizar beacons registrados a favoritos locales
+                // Esto asegura que si se reinstala la app, los favoritos se recuperan
+                val identifiersToAdd = registeredBeacons.map { beacon ->
                     Log.i("BeaconViewModel", "   📍 ${beacon.zoneName}: UUID=${beacon.advUuid}, major=${beacon.major}, minor=${beacon.minor}")
+                    com.akiestoy.beacons.model.BeaconIdentifier(
+                        uuid = beacon.advUuid,
+                        major = beacon.major,
+                        minor = beacon.minor,
+                        macAddress = "" // No tenemos MAC en el registro, se actualizará cuando se detecte
+                    )
+                }
+                if (identifiersToAdd.isNotEmpty()) {
+                    favoritesRepository.addFavorites(identifiersToAdd)
+                    Log.i("BeaconViewModel", "✅ Sincronizados ${identifiersToAdd.size} beacons registrados a favoritos")
                 }
 
                 // Iniciar el escaneo
@@ -526,29 +711,72 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
                 // Monitorear beacons detectados y actualizar dinámicamente el beacon activo
                 var lastActiveBeaconMac: String? = null
+                var lastActiveBeaconTimestamp: Long = 0L
+                val BEACON_TIMEOUT_MS = 10_000L // 10 segundos de tolerancia antes de desconectar
 
                 viewModelScope.launch {
                     uniqueDevices.collect { devices ->
-                        if (devices.isEmpty()) return@collect
+                        val currentTime = System.currentTimeMillis()
+
+                        if (devices.isEmpty()) {
+                            // Si no hay dispositivos pero aún estamos dentro del timeout, mantener estado activo
+                            if (lastActiveBeaconMac != null && (currentTime - lastActiveBeaconTimestamp) > BEACON_TIMEOUT_MS) {
+                                Log.i("BeaconViewModel", "⚠️ Timeout de ${BEACON_TIMEOUT_MS/1000}s alcanzado sin señal, desconectando...")
+                                lastActiveBeaconMac = null
+                                viewModelScope.launch {
+                                    favoritesRepository.clearFavorites()
+                                }
+                            }
+                            return@collect
+                        }
+
+                        // Filtrar solo dispositivos iBeacon
+                        val iBeaconDevices = devices.filter { it.iBeaconData != null }
+
+                        // Si no hay iBeacons detectados, verificar timeout
+                        if (iBeaconDevices.isEmpty()) {
+                            if (lastActiveBeaconMac != null && (currentTime - lastActiveBeaconTimestamp) > BEACON_TIMEOUT_MS) {
+                                Log.i("BeaconViewModel", "⚠️ Timeout de ${BEACON_TIMEOUT_MS/1000}s sin iBeacons, desconectando...")
+                                lastActiveBeaconMac = null
+                                viewModelScope.launch {
+                                    favoritesRepository.clearFavorites()
+                                }
+                            }
+                            return@collect
+                        }
 
                         // Buscar beacons registrados en los dispositivos detectados
                         // Comparar por UUID + major + minor para identificación precisa
-                        val detectedRegisteredBeacons = devices.mapNotNull { device ->
-                            // Solo procesar si tiene datos de iBeacon
-                            val iBeacon = device.iBeaconData ?: return@mapNotNull null
+                        // Filtrar solo beacons vistos en los últimos 10 segundos
+                        val tenSecondsAgo = currentTime - BEACON_TIMEOUT_MS
+                        val recentIBeaconDevices = iBeaconDevices.filter { it.timestamp > tenSecondsAgo }
 
-                            // Buscar en beacons registrados si UUID + major + minor coinciden
-                            val matchingBeacon = registeredBeacons.find { beacon ->
-                                iBeacon.uuid.lowercase() == beacon.advUuid.lowercase() &&
-                                iBeacon.major == beacon.major &&
-                                iBeacon.minor == beacon.minor
+                        val detectedRegisteredBeacons = recentIBeaconDevices.mapNotNull { device ->
+                            val iBeacon = device.iBeaconData!!
+
+                            // PRIORIDAD 1: Buscar por MAC address (más confiable)
+                            var matchingBeacon = registeredBeacons.find { beacon ->
+                                !beacon.mac.isNullOrEmpty() &&
+                                device.macAddress.equals(beacon.mac, ignoreCase = true)
                             }
 
                             if (matchingBeacon != null) {
-                                Log.d("BeaconViewModel", "✅ Match por UUID+major+minor: ${matchingBeacon.zoneName} (UUID=${iBeacon.uuid}, major=${iBeacon.major}, minor=${iBeacon.minor}, MAC=${device.macAddress}, RSSI=${device.rssi})")
+                                Log.d("BeaconViewModel", "✅ Match por MAC: ${matchingBeacon.zoneName} (MAC=${device.macAddress}, RSSI=${device.rssi})")
+                            } else {
+                                // PRIORIDAD 2: Buscar por UUID + major + minor
+                                matchingBeacon = registeredBeacons.find { beacon ->
+                                    iBeacon.uuid.lowercase() == beacon.advUuid.lowercase() &&
+                                    iBeacon.major == beacon.major &&
+                                    iBeacon.minor == beacon.minor
+                                }
+                                if (matchingBeacon != null) {
+                                    Log.d("BeaconViewModel", "✅ Match por UUID+major+minor: ${matchingBeacon.zoneName} (UUID=${iBeacon.uuid}, major=${iBeacon.major}, minor=${iBeacon.minor}, MAC=${device.macAddress}, RSSI=${device.rssi})")
+                                }
+                            }
+
+                            if (matchingBeacon != null) {
                                 Pair(device, matchingBeacon)
                             } else {
-                                Log.v("BeaconViewModel", "⚠️ No match: UUID=${iBeacon.uuid}, major=${iBeacon.major}, minor=${iBeacon.minor}, MAC=${device.macAddress}")
                                 null
                             }
                         }
@@ -559,6 +787,9 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
                             if (closestBeacon != null) {
                                 val (device, registeredBeacon) = closestBeacon
+
+                                // Actualizar timestamp de última señal válida
+                                lastActiveBeaconTimestamp = device.timestamp
 
                                 // Solo loguear si cambió el beacon activo
                                 if (lastActiveBeaconMac != device.macAddress) {
@@ -580,9 +811,10 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
                                 }
                             }
                         } else {
-                            // No hay beacons registrados cerca, limpiar favoritos
-                            if (lastActiveBeaconMac != null) {
-                                Log.i("BeaconViewModel", "⚠️ No hay beacons registrados cerca, desconectando...")
+                            // Hay iBeacons pero ninguno coincide con los registrados
+                            // Solo desconectar si pasó el timeout desde la última señal válida
+                            if (lastActiveBeaconMac != null && (currentTime - lastActiveBeaconTimestamp) > BEACON_TIMEOUT_MS) {
+                                Log.i("BeaconViewModel", "⚠️ Timeout de ${BEACON_TIMEOUT_MS/1000}s sin beacons registrados cerca, desconectando...")
                                 lastActiveBeaconMac = null
                                 viewModelScope.launch {
                                     favoritesRepository.clearFavorites()

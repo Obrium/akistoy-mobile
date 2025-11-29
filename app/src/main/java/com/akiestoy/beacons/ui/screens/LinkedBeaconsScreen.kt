@@ -23,6 +23,7 @@ import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.model.RegisteredBeacon
 import com.akiestoy.beacons.ui.BeaconViewModel
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 /** Pantalla completa para mostrar los beacons vinculados (favoritos y zonas) */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,10 +44,16 @@ fun LinkedBeaconsScreen(
     val database = remember { AppDatabase.getDatabase(context.applicationContext as Application) }
     var registeredBeacons by remember { mutableStateOf<List<RegisteredBeacon>>(emptyList()) }
 
-    // Cargar beacons registrados al inicio
+    // Cargar beacons registrados al inicio (solo los que tienen MAC)
     LaunchedEffect(Unit) {
         launch {
-            registeredBeacons = database.registeredBeaconDao().getAllBeaconsOnce()
+            val allBeacons = database.registeredBeaconDao().getAllBeaconsOnce()
+            // Filtrar solo beacons que tienen MAC registrada
+            registeredBeacons = allBeacons.filter { !it.mac.isNullOrEmpty() }
+            android.util.Log.i("LinkedBeaconsScreen", "📋 Cargados ${registeredBeacons.size} beacons con MAC de ${allBeacons.size} totales")
+            registeredBeacons.forEach { beacon ->
+                android.util.Log.d("LinkedBeaconsScreen", "   📍 ${beacon.beaconName ?: beacon.zoneName} - MAC: ${beacon.mac} - UUID: ${beacon.advUuid}")
+            }
         }
     }
 
@@ -70,7 +77,7 @@ fun LinkedBeaconsScreen(
                 )
             }
     ) { paddingValues ->
-        if (zones.isEmpty()) {
+        if (registeredBeacons.isEmpty()) {
             // Estado vacío
             Column(
                     modifier =
@@ -82,43 +89,43 @@ fun LinkedBeaconsScreen(
             ) {
                 Icon(
                         imageVector = Icons.Default.FavoriteBorder,
-                        contentDescription = "Sin zonas",
+                        contentDescription = "Sin beacons",
                         modifier = Modifier.size(64.dp),
                         tint = MaterialTheme.colorScheme.outline
                 )
                 Spacer(modifier = Modifier.height(24.dp))
                 Text(
-                        text = "No hay zonas vinculadas",
+                        text = "No hay beacons vinculados",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                        text = "Inicia sesión para sincronizar las zonas de tu empresa",
+                        text = "Inicia sesión para sincronizar los beacons de tu empresa",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.secondary,
                         textAlign = TextAlign.Center
                 )
             }
         } else {
-            // Lista de zonas vinculadas
+            // Lista de beacons vinculados
+            val scope = rememberCoroutineScope()
             LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                items(zones, key = { it.id }) { zone ->
-                    ZoneCard(
-                            zone = zone,
+                items(registeredBeacons, key = { it.id }) { beacon ->
+                    RegisteredBeaconCard(
+                            beacon = beacon,
                             detectedBeacons = allDetectedBeacons,
-                            registeredBeacons = registeredBeacons,
                             onRemove = {
-                                zoneViewModel.deleteZone(zone.id)
-                                // Remover todos los beacons de esta zona de favoritos
-                                val zoneBeacons = registeredBeacons.filter { it.zoneId == zone.id }
-                                zoneBeacons.forEach { beacon ->
-                                    val identifier = com.akiestoy.beacons.model.BeaconIdentifier.fromRegisteredBeacon(beacon)
-                                    beaconViewModel.toggleFavorite(identifier)
+                                scope.launch {
+                                    // Eliminar de la base de datos local
+                                    database.registeredBeaconDao().deleteBeacon(beacon)
+                                    // Actualizar la lista local
+                                    registeredBeacons = registeredBeacons.filter { it.id != beacon.id }
+                                    android.util.Log.i("LinkedBeaconsScreen", "🗑️ Beacon eliminado: ${beacon.beaconName ?: beacon.zoneName}")
                                 }
                             }
                     )
@@ -128,16 +135,39 @@ fun LinkedBeaconsScreen(
     }
 }
 
-/** Card para mostrar un beacon vinculado */
+/** Card para mostrar un beacon registrado */
 @Composable
-private fun LinkedBeaconCard(beacon: com.akiestoy.beacons.model.BLEScanLog, onRemove: () -> Unit) {
+private fun RegisteredBeaconCard(
+    beacon: RegisteredBeacon,
+    detectedBeacons: List<com.akiestoy.beacons.model.BLEScanLog>,
+    onRemove: () -> Unit
+) {
+    // Buscar si este beacon está siendo detectado
+    // PRIORIDAD 1: Match por MAC address (más confiable)
+    // PRIORIDAD 2: Match por UUID + major + minor
+    val detectedBeacon = detectedBeacons.find { detected ->
+        // Primero intentar match por MAC
+        if (!beacon.mac.isNullOrEmpty() && detected.macAddress.equals(beacon.mac, ignoreCase = true)) {
+            return@find true
+        }
+        // Si no hay MAC, usar UUID + major + minor
+        val iBeacon = detected.iBeaconData ?: return@find false
+        iBeacon.uuid.lowercase() == beacon.advUuid.lowercase() &&
+                iBeacon.major == beacon.major &&
+                iBeacon.minor == beacon.minor
+    }
+
+    // Determinar color de borde basado en si está en alcance
+    val borderColor = if (detectedBeacon != null) Color(0xFF4CAF50) else Color(0xFFE0E0E0)
+    val borderWidth = if (detectedBeacon != null) 2.dp else 1.dp
+
     OutlinedCard(
             modifier = Modifier.fillMaxWidth(),
             colors =
                     CardDefaults.outlinedCardColors(
                             containerColor = MaterialTheme.colorScheme.surface
                     ),
-            border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
+            border = BorderStroke(borderWidth, borderColor),
             shape = RoundedCornerShape(12.dp)
     ) {
         Row(
@@ -147,7 +177,7 @@ private fun LinkedBeaconCard(beacon: com.akiestoy.beacons.model.BLEScanLog, onRe
         ) {
             // Información del beacon
             Column(modifier = Modifier.weight(1f)) {
-                // Nombre
+                // Nombre del beacon
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                             text = "Nombre:",
@@ -157,27 +187,7 @@ private fun LinkedBeaconCard(beacon: com.akiestoy.beacons.model.BLEScanLog, onRe
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                            text =
-                                    beacon.deviceName.ifEmpty {
-                                        "Beacon ${beacon.macAddress.takeLast(4)}"
-                                    },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Black
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-                // MAC Address
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                            text = "MAC:",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Black
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                            text = beacon.macAddress,
+                            text = beacon.beaconName ?: beacon.zoneName,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.Black
                     )
@@ -185,20 +195,81 @@ private fun LinkedBeaconCard(beacon: com.akiestoy.beacons.model.BLEScanLog, onRe
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Distancia (calculada a partir del RSSI)
+                // MAC Address (si existe)
+                if (!beacon.mac.isNullOrEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                                text = "MAC:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                                text = beacon.mac,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Black
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                // Zona
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                            text = "Distancia:",
+                            text = "Zona:",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                            text = calculateDistance(beacon.rssi),
+                            text = beacon.zoneName,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.Black
                     )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Estado y distancia
+                if (detectedBeacon != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                                text = "Distancia:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF4CAF50)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                                text = calculateDistanceInMeters(detectedBeacon.rssi),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF4CAF50),
+                                fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                                text = "• En alcance",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFF4CAF50)
+                        )
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                                text = "Estado:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                                text = "Fuera de alcance",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                        )
+                    }
                 }
             }
 

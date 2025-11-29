@@ -15,6 +15,8 @@ data class RegisteredBeacon(
     val tenantId: String,
     val companyId: String,
     val advUuid: String,      // UUID del beacon para escaneo
+    val mac: String? = null,  // MAC address del beacon (opcional)
+    val beaconName: String? = null,  // Nombre del beacon (opcional)
     val major: Int,
     val minor: Int,
     val txPower: Int,

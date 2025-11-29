@@ -50,6 +50,7 @@ fun BeaconScreen(
     val beaconToConfigure by viewModel.beaconToConfigure.collectAsState()
     val zones by viewModel.zones.collectAsState()
     val isConfiguringBeacon by viewModel.isConfiguringBeacon.collectAsState()
+    val isCreatingZone by viewModel.isCreatingZone.collectAsState()
     val configurationResult by viewModel.configurationResult.collectAsState()
 
     // Snackbar para mostrar resultados
@@ -139,9 +140,13 @@ fun BeaconScreen(
             scanLog = scanLog,
             zones = zones,
             isLoading = isConfiguringBeacon,
+            isCreatingZone = isCreatingZone,
             onDismiss = { viewModel.cancelBeaconConfiguration() },
             onConfirm = { beaconName, zoneName ->
                 viewModel.confirmBeaconConfiguration(beaconName, zoneName)
+            },
+            onCreateZone = { zoneName ->
+                viewModel.createZone(zoneName)
             }
         )
     }

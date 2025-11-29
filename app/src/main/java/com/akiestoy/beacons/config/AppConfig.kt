@@ -92,4 +92,18 @@ object AppConfig {
      * Por defecto: 5 segundos
      */
     val LOG_INTERVAL_MS: Long = 5000L
+
+    // ==========================================
+    // IDs FIJOS PARA TESTING/DESARROLLO
+    // ==========================================
+
+    /**
+     * Tenant ID fijo para pruebas
+     */
+    const val DEFAULT_TENANT_ID = "550e8400-e29b-41d4-a716-446655440000"
+
+    /**
+     * Company ID fijo para pruebas
+     */
+    const val DEFAULT_COMPANY_ID = "660e8400-e29b-41d4-a716-446655440000"
 }
