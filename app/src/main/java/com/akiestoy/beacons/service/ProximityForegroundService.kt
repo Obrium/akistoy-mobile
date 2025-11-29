@@ -19,9 +19,12 @@ import com.akiestoy.beacons.R
 import com.akiestoy.beacons.api.ApiClient
 import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.data.FavoritesRepository
+import com.akiestoy.beacons.model.RegisteredBeacon
 import com.akiestoy.beacons.proximity.ProximityBeaconScanner
 import com.akiestoy.beacons.tracking.BeaconTrackingService
 import com.akiestoy.beacons.tracking.EventBatcher
+import com.akiestoy.beacons.tracking.ZoneEventService
+import com.akiestoy.beacons.tracking.ZoneManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,10 +40,15 @@ class ProximityForegroundService : Service() {
     private val TAG = "ProximityForegroundService"
 
     private lateinit var trackingService: BeaconTrackingService
+    private lateinit var zoneEventService: ZoneEventService
     private lateinit var proximityScanner: ProximityBeaconScanner
     private lateinit var favoritesRepository: FavoritesRepository
     private lateinit var database: AppDatabase
+    private lateinit var zoneManager: ZoneManager
     private var wakeLock: PowerManager.WakeLock? = null
+
+    // Cache de beacons registrados (actualizado periódicamente)
+    private var registeredBeaconsCache: List<RegisteredBeacon> = emptyList()
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -166,6 +174,20 @@ class ProximityForegroundService : Service() {
             Log.e(TAG, "Error cleaning up tracking service", e)
         }
 
+        // Limpiar ZoneManager
+        try {
+            zoneManager.reset()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resetting zone manager", e)
+        }
+
+        // Limpiar ZoneEventService
+        try {
+            zoneEventService.reset()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resetting zone event service", e)
+        }
+
         // Cancelar coroutines
         serviceScope.cancel()
 
@@ -203,6 +225,9 @@ class ProximityForegroundService : Service() {
         database = AppDatabase.getDatabase(this)
         val pendingEventDao = database.pendingEventDao()
 
+        // Crear ZoneManager para detección estable de zonas
+        zoneManager = ZoneManager()
+
         // Crear EventBatcher con cola offline
         val eventBatcher = EventBatcher(
             api = ApiClient.proximityApi,
@@ -217,68 +242,115 @@ class ProximityForegroundService : Service() {
             eventBatcher = eventBatcher
         )
 
-        // Crear Scanner con callback al tracking service
+        // Crear ZoneEventService para eventos optimizados
+        // Este servicio REEMPLAZA el envío de beacon-readings continuos
+        // y solo envía COMPANY_ENTRY, COMPANY_EXIT, ZONE_CHANGE
+        zoneEventService = ZoneEventService(
+            api = ApiClient.proximityApi,
+            deviceId = deviceId
+        )
+
+        // Observar cambios en beacons registrados y actualizar cache automáticamente
+        // Esto resuelve el problema de timing donde el servicio arranca antes de que se sincronicen los beacons
+        serviceScope.launch {
+            database.registeredBeaconDao().getAllActiveBeacons().collect { beacons ->
+                registeredBeaconsCache = beacons
+                Log.i(TAG, "📋 Cache actualizado (observando BD): ${beacons.size} beacons registrados")
+                beacons.forEach { beacon ->
+                    Log.d(TAG, "   📍 ${beacon.zoneName} - MAC: ${beacon.mac ?: "N/A"} - Type: ${beacon.beaconType}")
+                }
+            }
+        }
+
+        // Crear Scanner con callback al tracking service y zone event service
         proximityScanner = ProximityBeaconScanner(
             context = this,
             onBeaconDetected = { macAddress, uuid, major, minor, rssi ->
                 serviceScope.launch {
-                    Log.i(TAG, "🔍 Beacon detectado: UUID=${uuid.lowercase()}, Major=$major, Minor=$minor, MAC=$macAddress")
-                    
-                    // Buscar el beacon registrado para obtener su zoneName
-                    val registeredBeacon = database.registeredBeaconDao().getBeaconByIdentifiers(
-                        uuid = uuid.lowercase(),
-                        major = major,
-                        minor = minor
-                    )
-                    
+                    // Buscar beacon registrado usando PRIORIDAD:
+                    // 1. Match por MAC address (más confiable)
+                    // 2. Match por UUID + major + minor (fallback)
+                    val registeredBeacon = findRegisteredBeacon(macAddress, uuid, major, minor)
+
                     if (registeredBeacon != null) {
-                        Log.i(TAG, "✅ Beacon encontrado en BD: ID=${registeredBeacon.id}, Zona=${registeredBeacon.zoneName}")
-                        
-                        // Solo procesar beacons registrados (que están en la BD)
-                        // Enviar al tracking service
-                        trackingService.onBeaconDetected(
-                            beaconId = registeredBeacon.id,
-                            zoneName = registeredBeacon.zoneName,
-                            rssi = rssi
-                        )
-                        
-                        Log.i(TAG, "📡 Enviado al tracking: BeaconID=${registeredBeacon.id}, Zona=${registeredBeacon.zoneName}, RSSI=$rssi")
-                    } else {
-                        Log.w(TAG, "⚠️ Beacon NO registrado en BD. Ignorando...")
-                        // Listar todos los beacons registrados para debug (solo primera vez)
-                        val allBeacons = database.registeredBeaconDao().getAllBeaconsOnce()
-                        Log.w(TAG, "📋 Total beacons registrados: ${allBeacons.size}")
-                        allBeacons.forEach { beacon ->
-                            Log.d(TAG, "   - UUID=${beacon.advUuid}, Major=${beacon.major}, Minor=${beacon.minor}, Zona=${beacon.zoneName}")
-                        }
+                        Log.d(TAG, "✅ Beacon match: ${registeredBeacon.zoneName} (MAC: ${registeredBeacon.mac ?: "N/A"}, RSSI: $rssi, Type: ${registeredBeacon.beaconType})")
+
+                        // 1. Actualizar ZoneManager para detección estable de zona
+                        zoneManager.onBeaconDetected(registeredBeacon, rssi, macAddress)
+
+                        // 2. Enviar al ZoneEventService para eventos optimizados
+                        // (COMPANY_ENTRY, COMPANY_EXIT, ZONE_CHANGE)
+                        zoneEventService.onBeaconDetected(registeredBeacon, rssi, macAddress)
+
+                        // NOTA: Ya NO enviamos beacon-readings continuos al backend
+                        // El trackingService ahora solo maneja estado local (INSIDE/OUTSIDE)
+                        // trackingService.onBeaconDetected(...) // DESHABILITADO
                     }
+                    // No loguear beacons no registrados para evitar saturación
                 }
             },
-            isFavorite = { macAddress -> true } // Ya no usa favoritos, procesa todos los beacons
+            isFavorite = { macAddress -> true } // Procesa todos los beacons detectados
         )
 
-        // Log de beacons favoritos
-        val favoritesCount = favoritesRepository.favorites.value.size
-        Log.i(TAG, "📌 Monitoring $favoritesCount favorite beacon(s)")
-        if (favoritesCount > 0) {
-            favoritesRepository.favorites.value.forEach { mac ->
-                Log.d(TAG, "   └─ Favorite: $mac")
+        // Observar cambios de zona del ZoneManager para actualizar notificación
+        serviceScope.launch {
+            zoneManager.currentZone.collect { zoneInfo ->
+                val zoneName = zoneInfo?.beaconName ?: "Buscando..."
+                val rssi = zoneInfo?.rssi ?: 0
+                Log.i(TAG, "📍 Zona activa cambiada: $zoneName (RSSI: $rssi dBm)")
+                updateNotification("Zona: $zoneName", rssi)
             }
-        } else {
-            Log.w(TAG, "⚠️ No favorite beacons configured! Please add beacons to favorites first.")
         }
 
-        // Observar cambios de estado
+        // Observar cambios de estado del tracking service
         serviceScope.launch {
             trackingService.currentState.collect { state ->
-                Log.i(TAG, "🔄 State changed: $state")
-                updateNotification(state.toString(), 0)
+                Log.i(TAG, "🔄 Estado máquina: $state")
             }
         }
 
         Log.i(TAG, "✅ All components initialized successfully")
         Log.d(TAG, "Device ID: $deviceId")
         Log.d(TAG, "Device Name: $deviceName")
+    }
+
+    /**
+     * Busca un beacon registrado usando prioridad: MAC > UUID+major+minor
+     */
+    private suspend fun findRegisteredBeacon(
+        macAddress: String,
+        uuid: String,
+        major: Int,
+        minor: Int
+    ): RegisteredBeacon? {
+        // PRIORIDAD 1: Match por MAC address (más confiable)
+        val byMac = registeredBeaconsCache.find { beacon ->
+            !beacon.mac.isNullOrEmpty() &&
+            beacon.mac.equals(macAddress, ignoreCase = true)
+        }
+
+        if (byMac != null) {
+            return byMac
+        }
+
+        // PRIORIDAD 2: Match por UUID + major + minor
+        val byIdentifiers = registeredBeaconsCache.find { beacon ->
+            beacon.advUuid.equals(uuid, ignoreCase = true) &&
+            beacon.major == major &&
+            beacon.minor == minor
+        }
+
+        if (byIdentifiers != null) {
+            return byIdentifiers
+        }
+
+        // Si no está en cache, intentar buscar en BD directamente
+        // (puede que el cache esté desactualizado)
+        return database.registeredBeaconDao().getBeaconByIdentifiers(
+            uuid = uuid.lowercase(),
+            major = major,
+            minor = minor
+        )
     }
 
     /**
@@ -289,13 +361,34 @@ class ProximityForegroundService : Service() {
             // Iniciar escaneo BLE
             proximityScanner.startScanning(serviceScope)
 
-            // Iniciar verificación de señal en tracking service
-            trackingService.startSignalCheck(serviceScope)
+            // Iniciar ZoneEventService para eventos optimizados
+            zoneEventService.start(serviceScope)
+
+            // NOTA: Ya no iniciamos trackingService.startSignalCheck()
+            // porque no enviamos beacon-readings continuos
+
+            // Iniciar verificación periódica de timeout del ZoneManager
+            startZoneTimeoutCheck()
 
             updateNotification("Escaneando...", 0)
-            Log.i(TAG, "🔍 Proximity scanning started in BALANCED mode")
+            Log.i(TAG, "🔍 Proximity scanning started with OPTIMIZED events (ZoneEventService)")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error starting proximity scanning", e)
+        }
+    }
+
+    /**
+     * Inicia la verificación periódica de timeout de zona
+     * Verifica cada 5 segundos si se perdió señal de todos los beacons
+     */
+    private fun startZoneTimeoutCheck() {
+        serviceScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(5000) // Cada 5 segundos
+                if (zoneManager.checkTimeout()) {
+                    Log.w(TAG, "⏰ ZoneManager reportó timeout - sin beacons activos")
+                }
+            }
         }
     }
 

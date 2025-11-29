@@ -139,23 +139,31 @@ class ProximityBeaconScanner(
     }
 
     /**
-     * Construye filtros de escaneo para nuestros beacons
+     * Construye filtros de escaneo para iBeacons
+     * Los iBeacons usan manufacturerData con Apple ID (0x004C), NO serviceUuid
      */
     private fun buildScanFilters(): List<ScanFilter> {
         val filters = mutableListOf<ScanFilter>()
 
-        // Filtro 1: Por UUID del servicio (si los beacons lo anuncian)
         try {
+            // Apple manufacturer ID = 0x004C (76 decimal)
+            // iBeacon prefix: 0x02 0x15 (subtype iBeacon, 21 bytes data)
+            val appleManufacturerId = 0x004C
+            // Prefijo mínimo para identificar iBeacons: [0x02, 0x15]
+            val iBeaconPrefix = byteArrayOf(0x02, 0x15)
+            // Máscara para verificar solo los primeros 2 bytes
+            val iBeaconMask = byteArrayOf(0xFF.toByte(), 0xFF.toByte())
+
             val filter = ScanFilter.Builder()
-                .setServiceUuid(ParcelUuid(UUID.fromString(IBEACON_UUID)))
+                .setManufacturerData(appleManufacturerId, iBeaconPrefix, iBeaconMask)
                 .build()
             filters.add(filter)
+            Log.i(TAG, "✅ iBeacon filter configured (Apple ID: 0x004C, prefix: 0x02 0x15)")
         } catch (e: Exception) {
-            Log.w(TAG, "Could not create UUID filter", e)
+            Log.w(TAG, "⚠️ Could not create iBeacon filter, scanning all devices", e)
         }
 
-        // Si no hay filtros específicos, retornar lista vacía (escanear todo)
-        // En producción, puedes agregar más filtros específicos
+        // Si no se pudo crear el filtro, retornar lista vacía (escanear todo)
         return filters
     }
 

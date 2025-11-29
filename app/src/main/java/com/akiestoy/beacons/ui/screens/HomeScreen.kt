@@ -20,10 +20,8 @@ import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.model.BLEScanLog
 import com.akiestoy.beacons.model.RegisteredBeacon
 import com.akiestoy.beacons.state.AppState
-import com.akiestoy.beacons.state.ZoneInfo
 import com.akiestoy.beacons.ui.BeaconViewModel
 import com.akiestoy.beacons.ui.components.SuperAdminDialog
-import com.akiestoy.beacons.utils.RutValidator
 import com.akiestoy.beacons.viewmodel.SuperAdminViewModel
 import com.akiestoy.beacons.viewmodel.UserRegistrationViewModel
 import kotlinx.coroutines.delay
@@ -94,15 +92,42 @@ fun HomeScreen(
         }
     }
 
-    // Calcular el estado de conexión basado en el beacon más cercano o el seleccionado manualmente
-    // Se recalcula cuando cambian los beacons, la selección manual o cada 2 segundos (updateTrigger)
-    val connectionState =
-            remember(favoriteBeacons, manuallySelectedBeaconMac, updateTrigger, registeredBeacons) {
-                calculateConnectionState(favoriteBeacons, manuallySelectedBeaconMac, registeredBeacons)
-            }
+    // Estado persistente para evitar parpadeos entre ACTIVO/INACTIVO
+    // Mantiene el último estado activo conocido durante un "grace period" de 25 segundos
+    var lastKnownActiveState by remember { mutableStateOf<ConnectionState?>(null) }
 
-    // Observar la zona actual desde el estado global
-    val currentZone by AppState.currentZone.collectAsState()
+    // Calcular el estado de conexión con histéresis temporal
+    // Usa match por MAC (más confiable que UUID que puede repetirse)
+    val connectionState = remember(favoriteBeacons, updateTrigger, registeredBeacons) {
+        val newState = calculateConnectionState(favoriteBeacons, registeredBeacons)
+
+        if (newState.isActive) {
+            // Si está activo, actualizar y guardar el último estado conocido
+            lastKnownActiveState = newState
+            newState
+        } else {
+            // Si no está activo, verificar si debemos mantener el último estado (grace period)
+            val lastActive = lastKnownActiveState
+            if (lastActive != null) {
+                val currentTime = System.currentTimeMillis()
+                val timeSinceLastActive = currentTime - lastActive.timestamp
+
+                if (timeSinceLastActive < 25_000) { // 25 segundos de grace period (consistente con ZoneManager)
+                    // Mantener último estado conocido pero actualizar lastSeenSeconds
+                    lastActive.copy(
+                        lastSeenSeconds = (timeSinceLastActive / 1000).toInt()
+                    )
+                } else {
+                    // Ya pasó el timeout de 25 segundos, mostrar INACTIVO
+                    lastKnownActiveState = null
+                    newState
+                }
+            } else {
+                // No hay estado previo, mostrar el nuevo estado (INACTIVO)
+                newState
+            }
+        }
+    }
 
     // Iniciar escaneo automático DESPUÉS de que el usuario esté autenticado
     LaunchedEffect(currentUser) {
@@ -281,6 +306,16 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
+
+                            // MAC del beacon (para pruebas)
+                            connectionState.beaconMac?.let { mac ->
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "MAC: $mac",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                                )
+                            }
                         }
                     }
 
@@ -356,91 +391,143 @@ data class ConnectionState(
         val activeBeaconName: String? = null,
         val zoneName: String? = null,
         val rssi: Int? = null,
-        val lastSeenSeconds: Int = 0
+        val lastSeenSeconds: Int = 0,
+        val timestamp: Long = System.currentTimeMillis(), // Timestamp de la última detección activa
+        val beaconMac: String? = null // MAC del beacon actual para histéresis
 )
 
 /**
- * Calcula el estado de conexión basado en el beacon seleccionado manualmente o el más cercano
- * También actualiza el estado global de la zona actual
+ * Estado de RSSI suavizado por beacon (para histéresis de zona)
+ * Usa EMA (Exponential Moving Average) igual que ZoneManager
+ */
+data class SmoothedBeaconState(
+    val mac: String,
+    var zoneName: String,  // Mutable para actualizar si cambia en el servidor
+    var smoothedRssi: Double = -100.0,
+    var lastTimestamp: Long = 0L,
+    var sampleCount: Int = 0
+) {
+    companion object {
+        const val EMA_ALPHA = 0.5 // Factor de suavizado
+    }
+
+    fun updateRssi(newRssi: Int, timestamp: Long) {
+        lastTimestamp = timestamp
+        sampleCount++
+        smoothedRssi = if (sampleCount == 1) {
+            newRssi.toDouble()
+        } else {
+            EMA_ALPHA * newRssi + (1 - EMA_ALPHA) * smoothedRssi
+        }
+    }
+
+    fun isActive(currentTime: Long): Boolean {
+        return (currentTime - lastTimestamp) < 15_000 // 15 segundos de ventana activa
+    }
+}
+
+// Estado global de RSSI suavizado por beacon (persiste entre recomposiciones)
+private val smoothedBeaconStates = mutableMapOf<String, SmoothedBeaconState>()
+
+// Zona actualmente confirmada (con histéresis)
+private var confirmedZoneMac: String? = null
+
+/**
+ * Calcula el estado de conexión basado en beacons detectados
+ * PRIORIDAD: Match por MAC address (más confiable que UUID que puede repetirse)
+ *
+ * Implementa:
+ * - Suavizado EMA de RSSI para cada beacon
+ * - Histéresis de 6 dB para cambiar de zona
+ * - Ventana de 15 segundos para beacons activos
  */
 private fun calculateConnectionState(
     favoriteBeacons: List<BLEScanLog>,
-    manuallySelectedBeaconMac: String?,
-    registeredBeacons: List<RegisteredBeacon> = emptyList()
+    registeredBeacons: List<RegisteredBeacon>
 ): ConnectionState {
-    if (favoriteBeacons.isEmpty()) {
-        AppState.clearCurrentZone()
-        return ConnectionState(isActive = false)
-    }
-
-    // Considerar solo beacons vistos en los últimos 15 segundos
-    // (tolerancia para beacons E9 que envían señal cada ~3 segundos)
     val currentTime = System.currentTimeMillis()
-    val fifteenSecondsAgo = currentTime - 15_000
-    val recentBeacons = favoriteBeacons.filter { it.timestamp > fifteenSecondsAgo }
 
-    if (recentBeacons.isEmpty()) {
-        AppState.clearCurrentZone()
+    if (favoriteBeacons.isEmpty()) {
         return ConnectionState(isActive = false)
     }
 
-    // Si hay un beacon seleccionado manualmente, usarlo (si está disponible en los recientes)
-    val selectedBeacon = if (manuallySelectedBeaconMac != null) {
-        recentBeacons.find { it.macAddress == manuallySelectedBeaconMac }
-    } else {
-        null
-    }
+    // Actualizar RSSI suavizado SOLO para beacons que tienen MAC registrada
+    for (beacon in favoriteBeacons) {
+        val mac = beacon.macAddress
+        if (mac.isEmpty()) continue
 
-    // Si no hay beacon manual o no está disponible, encontrar el más cercano
-    val activeBeacon = selectedBeacon ?: recentBeacons.maxByOrNull { it.rssi }
-
-    return if (activeBeacon != null) {
-        // Buscar el beacon registrado para obtener el nombre de la zona
-        // PRIORIDAD 1: Match por MAC address (más confiable)
-        // PRIORIDAD 2: Match por UUID + major + minor
-        val matchingRegisteredBeacon = registeredBeacons.find { registered ->
-            !registered.mac.isNullOrEmpty() &&
-            activeBeacon.macAddress.equals(registered.mac, ignoreCase = true)
-        } ?: run {
-            // Si no hay match por MAC, intentar por UUID + major + minor
-            val iBeaconData = activeBeacon.iBeaconData
-            if (iBeaconData != null) {
-                registeredBeacons.find { registered ->
-                    registered.advUuid.equals(iBeaconData.uuid, ignoreCase = true) &&
-                    registered.major == iBeaconData.major &&
-                    registered.minor == iBeaconData.minor
-                }
-            } else {
-                null
-            }
+        // Buscar zona registrada por MAC (SOLO procesar si hay match)
+        val registered = registeredBeacons.find { reg ->
+            !reg.mac.isNullOrEmpty() && reg.mac.equals(mac, ignoreCase = true)
         }
 
-        val zoneName = matchingRegisteredBeacon?.zoneName
-        val beaconName = matchingRegisteredBeacon?.zoneName
-            ?: activeBeacon.deviceName.takeIf { it.isNotEmpty() }
-            ?: activeBeacon.macAddress
+        // Si no hay beacon registrado con esta MAC, ignorar (evita "iBeacon" genéricos)
+        if (registered == null) continue
 
-        // Calcular hace cuántos segundos fue la última señal
-        val lastSeenSeconds = ((currentTime - activeBeacon.timestamp) / 1000).toInt()
+        val zoneName = registered.zoneName
 
-        AppState.updateCurrentZone(
-                ZoneInfo(
-                        beaconName = beaconName,
-                        beaconMac = activeBeacon.macAddress,
-                        rssi = activeBeacon.rssi,
-                        timestamp = activeBeacon.timestamp
-                )
-        )
-
-        ConnectionState(
-            isActive = true,
-            activeBeaconName = beaconName,
-            zoneName = zoneName,
-            rssi = activeBeacon.rssi,
-            lastSeenSeconds = lastSeenSeconds
-        )
-    } else {
-        AppState.clearCurrentZone()
-        ConnectionState(isActive = false)
+        val state = smoothedBeaconStates.getOrPut(mac) {
+            SmoothedBeaconState(mac = mac, zoneName = zoneName)
+        }
+        // Actualizar zoneName en caso de que haya cambiado en el servidor
+        if (state.zoneName != zoneName) {
+            state.zoneName = zoneName
+        }
+        state.updateRssi(beacon.rssi, beacon.timestamp)
     }
+
+    // Filtrar solo beacons activos (señal reciente)
+    val activeBeacons = smoothedBeaconStates.values.filter { it.isActive(currentTime) }
+
+    if (activeBeacons.isEmpty()) {
+        confirmedZoneMac = null
+        return ConnectionState(isActive = false)
+    }
+
+    // Encontrar el beacon con mejor RSSI suavizado
+    val closestBeacon = activeBeacons.maxByOrNull { it.smoothedRssi } ?: return ConnectionState(isActive = false)
+
+    // Implementar HISTÉRESIS: solo cambiar de zona si el nuevo beacon es significativamente más fuerte
+    val HYSTERESIS_DB = 6.0
+    val currentConfirmedMac = confirmedZoneMac
+
+    val finalBeacon: SmoothedBeaconState = if (currentConfirmedMac != null) {
+        val currentZoneBeacon = activeBeacons.find { it.mac.equals(currentConfirmedMac, ignoreCase = true) }
+
+        if (currentZoneBeacon != null && currentZoneBeacon.isActive(currentTime)) {
+            // La zona actual sigue activa, verificar si otra zona es significativamente más fuerte
+            val rssiDifference = closestBeacon.smoothedRssi - currentZoneBeacon.smoothedRssi
+
+            if (rssiDifference > HYSTERESIS_DB) {
+                // El nuevo beacon supera la histéresis, cambiar zona
+                android.util.Log.i("HomeScreen", "🔄 Cambio de zona: ${currentZoneBeacon.zoneName} → ${closestBeacon.zoneName} (diff: +${rssiDifference.toInt()} dB)")
+                confirmedZoneMac = closestBeacon.mac
+                closestBeacon
+            } else {
+                // Mantener zona actual (no supera histéresis)
+                currentZoneBeacon
+            }
+        } else {
+            // La zona actual ya no está activa, usar la más cercana
+            confirmedZoneMac = closestBeacon.mac
+            closestBeacon
+        }
+    } else {
+        // No hay zona confirmada, usar la más cercana
+        confirmedZoneMac = closestBeacon.mac
+        closestBeacon
+    }
+
+    val lastSeenSeconds = ((currentTime - finalBeacon.lastTimestamp) / 1000).toInt()
+
+    return ConnectionState(
+        isActive = true,
+        activeBeaconName = finalBeacon.zoneName,
+        zoneName = finalBeacon.zoneName,
+        rssi = finalBeacon.smoothedRssi.toInt(),
+        lastSeenSeconds = lastSeenSeconds,
+        timestamp = finalBeacon.lastTimestamp,
+        beaconMac = finalBeacon.mac
+    )
 }
+

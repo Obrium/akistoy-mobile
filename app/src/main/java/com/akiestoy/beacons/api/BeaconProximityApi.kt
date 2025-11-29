@@ -5,6 +5,8 @@ import com.akiestoy.beacons.model.tracking.HeartbeatRequest
 import com.akiestoy.beacons.model.tracking.HeartbeatResponse
 import com.akiestoy.beacons.model.tracking.ImplicitEventRequest
 import com.akiestoy.beacons.model.tracking.ImplicitEventResponse
+import com.akiestoy.beacons.model.tracking.ZoneEventRequest
+import com.akiestoy.beacons.model.tracking.ZoneEventResponse
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.POST
@@ -45,6 +47,20 @@ interface BeaconProximityApi {
     suspend fun sendHeartbeat(
         @Body request: HeartbeatRequest
     ): Response<HeartbeatResponse>
+
+    /**
+     * Envía evento de zona optimizado
+     * Tipos: COMPANY_ENTRY, COMPANY_EXIT, ZONE_CHANGE
+     *
+     * Este endpoint reduce drásticamente los eventos (~115K/día → ~10-20/día por dispositivo)
+     *
+     * @param request Datos del evento de zona
+     * @return Response con el resultado
+     */
+    @POST("v1/mobile/zone-event")
+    suspend fun sendZoneEvent(
+        @Body request: ZoneEventRequest
+    ): Response<ZoneEventResponse>
 }
 
 /**
