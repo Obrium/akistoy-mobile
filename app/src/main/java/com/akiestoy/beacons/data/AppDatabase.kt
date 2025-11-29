@@ -12,13 +12,14 @@ import com.akiestoy.beacons.model.RegisteredBeacon
  * Base de datos principal de la aplicación
  */
 @Database(
-    entities = [User::class, PendingEvent::class, Zone::class, RegisteredBeacon::class],
-    version = 7,
+    entities = [User::class, PendingEvent::class, PendingZoneEvent::class, Zone::class, RegisteredBeacon::class],
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun pendingEventDao(): PendingEventDao
+    abstract fun pendingZoneEventDao(): PendingZoneEventDao
     abstract fun zoneDao(): ZoneDao
     abstract fun registeredBeaconDao(): RegisteredBeaconDao
 

@@ -246,9 +246,12 @@ class ProximityForegroundService : Service() {
         // Crear ZoneEventService para eventos optimizados
         // Este servicio REEMPLAZA el envío de beacon-readings continuos
         // y solo envía COMPANY_ENTRY, COMPANY_EXIT, ZONE_CHANGE
+        // Incluye cola offline para cuando no hay conexión a internet
+        val pendingZoneEventDao = database.pendingZoneEventDao()
         zoneEventService = ZoneEventService(
             api = ApiClient.proximityApi,
-            deviceId = deviceId
+            deviceId = deviceId,
+            pendingZoneEventDao = pendingZoneEventDao
         )
 
         // Cargar usuario logueado y configurarlo en ZoneEventService
