@@ -21,6 +21,7 @@ import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.model.RegisteredBeacon
 import com.akiestoy.beacons.proximity.ProximityBeaconScanner
+import com.akiestoy.beacons.state.ZoneInfo
 import com.akiestoy.beacons.tracking.BeaconTrackingService
 import com.akiestoy.beacons.tracking.EventBatcher
 import com.akiestoy.beacons.tracking.ZoneEventService
@@ -250,6 +251,21 @@ class ProximityForegroundService : Service() {
             deviceId = deviceId
         )
 
+        // Cargar usuario logueado y configurarlo en ZoneEventService
+        serviceScope.launch {
+            try {
+                val user = database.userDao().getCurrentUserOnce()
+                if (user != null) {
+                    zoneEventService.setUser(user.rut, user.name)
+                    Log.i(TAG, "👤 Usuario cargado: ${user.name} (RUT: ${user.rut})")
+                } else {
+                    Log.w(TAG, "⚠️ No hay usuario logueado")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error cargando usuario", e)
+            }
+        }
+
         // Observar cambios en beacons registrados y actualizar cache automáticamente
         // Esto resuelve el problema de timing donde el servicio arranca antes de que se sincronicen los beacons
         serviceScope.launch {
@@ -276,15 +292,12 @@ class ProximityForegroundService : Service() {
                         Log.d(TAG, "✅ Beacon match: ${registeredBeacon.zoneName} (MAC: ${registeredBeacon.mac ?: "N/A"}, RSSI: $rssi, Type: ${registeredBeacon.beaconType})")
 
                         // 1. Actualizar ZoneManager para detección estable de zona
+                        // ZoneManager aplica EMA, histéresis y confirmación por detecciones consecutivas
                         zoneManager.onBeaconDetected(registeredBeacon, rssi, macAddress)
 
-                        // 2. Enviar al ZoneEventService para eventos optimizados
-                        // (COMPANY_ENTRY, COMPANY_EXIT, ZONE_CHANGE)
-                        zoneEventService.onBeaconDetected(registeredBeacon, rssi, macAddress)
-
-                        // NOTA: Ya NO enviamos beacon-readings continuos al backend
-                        // El trackingService ahora solo maneja estado local (INSIDE/OUTSIDE)
-                        // trackingService.onBeaconDetected(...) // DESHABILITADO
+                        // 2. Solo actualizar cache en ZoneEventService (NO envía eventos)
+                        // Los eventos se envían cuando ZoneManager confirma un cambio de zona
+                        zoneEventService.updateBeaconCache(registeredBeacon, rssi, macAddress)
                     }
                     // No loguear beacons no registrados para evitar saturación
                 }
@@ -292,13 +305,20 @@ class ProximityForegroundService : Service() {
             isFavorite = { macAddress -> true } // Procesa todos los beacons detectados
         )
 
-        // Observar cambios de zona del ZoneManager para actualizar notificación
+        // Observar cambios de zona ESTABILIZADOS del ZoneManager
+        // Este es el ÚNICO punto donde se envían eventos al backend
         serviceScope.launch {
+            var previousZone: ZoneInfo? = null
             zoneManager.currentZone.collect { zoneInfo ->
                 val zoneName = zoneInfo?.beaconName ?: "Buscando..."
                 val rssi = zoneInfo?.rssi ?: 0
                 Log.i(TAG, "📍 Zona activa cambiada: $zoneName (RSSI: $rssi dBm)")
                 updateNotification("Zona: $zoneName", rssi)
+
+                // Enviar evento al backend SOLO cuando ZoneManager confirma el cambio
+                // Esto usa la lógica de estabilización (EMA + histéresis + confirmación)
+                zoneEventService.onStableZoneChanged(previousZone, zoneInfo)
+                previousZone = zoneInfo
             }
         }
 

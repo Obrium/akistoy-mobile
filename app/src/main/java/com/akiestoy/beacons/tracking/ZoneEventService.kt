@@ -18,32 +18,59 @@ import kotlinx.coroutines.launch
  * - De ~115,200 eventos/día (beacon-readings cada 3s)
  * - A ~10-20 eventos/día (solo cambios de zona y entrada/salida)
  *
+ * ARQUITECTURA:
+ * - Observa ZoneManager.currentZone para cambios de zona ESTABILIZADOS
+ * - Solo envía ZONE_CHANGE cuando ZoneManager confirma un cambio
+ * - Usa histéresis y EMA del ZoneManager para evitar fluctuaciones
+ *
  * Eventos:
- * - COMPANY_ENTRY: Primer beacon detectado con tipo "entrada_salida"
- * - COMPANY_EXIT: Beacon "entrada_salida" + 1min sin beacons "tracking"
- * - ZONE_CHANGE: Cambio entre zonas "tracking"
+ * - COMPANY_ENTRY: Primera zona detectada (entrada a la empresa)
+ * - COMPANY_EXIT: Timeout sin señal de beacons
+ * - ZONE_CHANGE: Cambio de zona confirmado por ZoneManager
  */
 class ZoneEventService(
     private val api: BeaconProximityApi,
     private val deviceId: String,
-    private val tenantId: String = "550e8400-e29b-41d4-a716-446655440000"
+    private val tenantId: String = "550e8400-e29b-41d4-a716-446655440000",
+    private var userRut: String? = null,
+    private var userName: String? = null
 ) {
     private val TAG = "ZoneEventService"
+
+    /**
+     * Actualiza los datos del usuario (llamar después de login)
+     */
+    fun setUser(rut: String?, name: String?) {
+        userRut = rut
+        userName = name
+        Log.i(TAG, "👤 Usuario configurado: $name (RUT: $rut)")
+    }
 
     // Estado actual
     private var isInsideCompany: Boolean = false
     private var currentZoneName: String? = null
-    private var lastEntryBeaconId: String? = null
-    private var lastEntryBeaconMac: String? = null
+    private var currentBeaconId: String? = null
+    private var currentBeaconMac: String? = null
 
     // Timeout para detectar salida
     private var exitCheckJob: Job? = null
-    private var lastTrackingBeaconTimestamp: Long = 0L
+    private var lastBeaconTimestamp: Long = 0L
+
+    // Cache del último beacon detectado (para tener beaconId cuando ZoneManager cambia)
+    private var lastDetectedBeacons: MutableMap<String, CachedBeaconInfo> = mutableMapOf()
+
+    data class CachedBeaconInfo(
+        val beaconId: String,
+        val beaconMac: String?,
+        val beaconType: String,
+        val rssi: Int,
+        val timestamp: Long
+    )
 
     // Configuración
     companion object {
-        // Tiempo sin beacons tracking para considerar posible salida (1 minuto)
-        private const val TRACKING_TIMEOUT_MS = 60_000L
+        // Tiempo sin beacons para considerar salida (25 segundos - igual que ZoneManager)
+        private const val EXIT_TIMEOUT_MS = 25_000L
         // Intervalo de verificación (cada 10 segundos)
         private const val CHECK_INTERVAL_MS = 10_000L
     }
@@ -72,152 +99,102 @@ class ZoneEventService(
     }
 
     /**
-     * Procesa la detección de un beacon registrado
-     * Llamar cada vez que ZoneManager detecta un beacon
+     * Actualiza el cache de beacons detectados
+     * Se llama en cada detección para mantener info actualizada de beaconId/mac por zona
+     * NO envía eventos - solo mantiene el cache
      */
-    suspend fun onBeaconDetected(
+    fun updateBeaconCache(
         beacon: RegisteredBeacon,
         rssi: Int,
         macAddress: String
     ) {
         val now = System.currentTimeMillis()
-        val beaconType = beacon.beaconType.lowercase()
+        lastBeaconTimestamp = now
 
-        when (beaconType) {
-            "entrada_salida" -> handleEntradaSalidaBeacon(beacon, rssi, macAddress, now)
-            "tracking" -> handleTrackingBeacon(beacon, rssi, macAddress, now)
-            else -> {
-                // Tratar tipos desconocidos como tracking
-                handleTrackingBeacon(beacon, rssi, macAddress, now)
-            }
-        }
+        // Guardar info del beacon para usar cuando ZoneManager confirme cambio
+        lastDetectedBeacons[beacon.zoneName] = CachedBeaconInfo(
+            beaconId = beacon.id,
+            beaconMac = macAddress,
+            beaconType = beacon.beaconType,
+            rssi = rssi,
+            timestamp = now
+        )
     }
 
     /**
-     * Procesa un cambio de zona desde ZoneManager
-     * Llamar cuando ZoneManager.currentZone cambia
+     * Procesa un cambio de zona ESTABILIZADO desde ZoneManager
+     * Este es el único punto donde se envían eventos ZONE_CHANGE
+     *
+     * @param previousZone Zona anterior (puede ser null si es entrada)
+     * @param newZone Nueva zona confirmada por ZoneManager
      */
-    suspend fun onZoneChanged(
+    suspend fun onStableZoneChanged(
         previousZone: ZoneInfo?,
-        newZone: ZoneInfo?,
-        beacon: RegisteredBeacon?
+        newZone: ZoneInfo?
     ) {
-        if (newZone == null || beacon == null) return
-
         val now = System.currentTimeMillis()
-        val fromZoneName = previousZone?.beaconName
 
-        // Solo enviar ZONE_CHANGE para beacons tracking
-        if (beacon.beaconType.lowercase() == "tracking" && isInsideCompany) {
-            if (fromZoneName != null && fromZoneName != newZone.beaconName) {
-                sendZoneChange(
-                    beaconId = beacon.id,
-                    beaconMac = beacon.mac,
-                    newZoneName = newZone.beaconName,
-                    fromZoneName = fromZoneName,
-                    rssi = newZone.rssi,
+        // Si newZone es null, ZoneManager perdió señal (timeout)
+        if (newZone == null) {
+            if (isInsideCompany && currentZoneName != null) {
+                // Enviar COMPANY_EXIT
+                val cachedBeacon = lastDetectedBeacons[currentZoneName]
+                sendCompanyExit(
+                    beaconId = cachedBeacon?.beaconId ?: "unknown",
+                    beaconMac = cachedBeacon?.beaconMac,
+                    zoneName = currentZoneName!!,
+                    rssi = cachedBeacon?.rssi ?: -100,
                     timestamp = now
                 )
-            }
-        }
+                Log.i(TAG, "🚪 COMPANY_EXIT (timeout de ZoneManager)")
 
-        currentZoneName = newZone.beaconName
-    }
-
-    // ========== Handlers por tipo de beacon ==========
-
-    private suspend fun handleEntradaSalidaBeacon(
-        beacon: RegisteredBeacon,
-        rssi: Int,
-        macAddress: String,
-        timestamp: Long
-    ) {
-        if (!isInsideCompany) {
-            // Usuario ENTRANDO a la empresa
-            isInsideCompany = true
-            lastEntryBeaconId = beacon.id
-            lastEntryBeaconMac = macAddress
-            currentZoneName = beacon.zoneName
-
-            sendCompanyEntry(
-                beaconId = beacon.id,
-                beaconMac = macAddress,
-                zoneName = beacon.zoneName,
-                rssi = rssi,
-                timestamp = timestamp
-            )
-
-            Log.i(TAG, "🚪 COMPANY_ENTRY detectada en ${beacon.zoneName}")
-
-        } else {
-            // Usuario ya dentro, detectando beacon entrada_salida de nuevo
-            // Verificar si es SALIDA (timeout de tracking)
-            val timeSinceLastTracking = timestamp - lastTrackingBeaconTimestamp
-
-            if (lastTrackingBeaconTimestamp > 0 && timeSinceLastTracking > TRACKING_TIMEOUT_MS) {
-                // Ha pasado más de 1 minuto sin beacons tracking → SALIDA
                 isInsideCompany = false
-
-                sendCompanyExit(
-                    beaconId = beacon.id,
-                    beaconMac = macAddress,
-                    zoneName = beacon.zoneName,
-                    rssi = rssi,
-                    timestamp = timestamp
-                )
-
-                Log.i(TAG, "🚪 COMPANY_EXIT detectada en ${beacon.zoneName} (${timeSinceLastTracking/1000}s sin tracking)")
-
-                // Reset estado
                 currentZoneName = null
-                lastTrackingBeaconTimestamp = 0L
-            } else {
-                Log.d(TAG, "📍 Beacon entrada_salida detectado pero aún hay tracking activo")
+                currentBeaconId = null
+                currentBeaconMac = null
             }
+            return
         }
-    }
 
-    private suspend fun handleTrackingBeacon(
-        beacon: RegisteredBeacon,
-        rssi: Int,
-        macAddress: String,
-        timestamp: Long
-    ) {
-        lastTrackingBeaconTimestamp = timestamp
+        val newZoneName = newZone.beaconName
+        val cachedBeacon = lastDetectedBeacons[newZoneName]
 
+        // Primera zona detectada = COMPANY_ENTRY
         if (!isInsideCompany) {
-            // Si detectamos tracking sin haber pasado por entrada_salida,
-            // asumimos entrada implícita
             isInsideCompany = true
-            currentZoneName = beacon.zoneName
+            currentZoneName = newZoneName
+            currentBeaconId = cachedBeacon?.beaconId
+            currentBeaconMac = cachedBeacon?.beaconMac
 
             sendCompanyEntry(
-                beaconId = beacon.id,
-                beaconMac = macAddress,
-                zoneName = beacon.zoneName,
-                rssi = rssi,
-                timestamp = timestamp
+                beaconId = cachedBeacon?.beaconId ?: "unknown",
+                beaconMac = cachedBeacon?.beaconMac,
+                zoneName = newZoneName,
+                rssi = newZone.rssi,
+                timestamp = now
             )
-
-            Log.i(TAG, "🚪 COMPANY_ENTRY implícita (beacon tracking detectado)")
+            Log.i(TAG, "🚪 COMPANY_ENTRY: $newZoneName")
+            return
         }
 
-        // Verificar cambio de zona
-        if (currentZoneName != null && currentZoneName != beacon.zoneName) {
-            val fromZone = currentZoneName!!
-
+        // Cambio de zona (solo si es diferente)
+        val previousZoneName = previousZone?.beaconName ?: currentZoneName
+        if (previousZoneName != null && previousZoneName != newZoneName) {
             sendZoneChange(
-                beaconId = beacon.id,
-                beaconMac = macAddress,
-                newZoneName = beacon.zoneName,
-                fromZoneName = fromZone,
-                rssi = rssi,
-                timestamp = timestamp
+                beaconId = cachedBeacon?.beaconId ?: "unknown",
+                beaconMac = cachedBeacon?.beaconMac,
+                newZoneName = newZoneName,
+                fromZoneName = previousZoneName,
+                rssi = newZone.rssi,
+                timestamp = now
             )
-
-            currentZoneName = beacon.zoneName
-            Log.i(TAG, "🔄 ZONE_CHANGE: $fromZone → ${beacon.zoneName}")
+            Log.i(TAG, "🔄 ZONE_CHANGE (estabilizado): $previousZoneName → $newZoneName")
         }
+
+        // Actualizar estado
+        currentZoneName = newZoneName
+        currentBeaconId = cachedBeacon?.beaconId
+        currentBeaconMac = cachedBeacon?.beaconMac
     }
 
     // ========== Verificación periódica ==========
@@ -226,13 +203,12 @@ class ZoneEventService(
         if (!isInsideCompany) return
 
         val now = System.currentTimeMillis()
-        val timeSinceLastTracking = now - lastTrackingBeaconTimestamp
+        val timeSinceLastBeacon = now - lastBeaconTimestamp
 
-        // Si no hemos visto ningún beacon tracking en más de 2 minutos,
-        // y tampoco entrada_salida, considerar salida implícita
-        if (lastTrackingBeaconTimestamp > 0 && timeSinceLastTracking > TRACKING_TIMEOUT_MS * 2) {
-            Log.w(TAG, "⏰ Sin beacons por ${timeSinceLastTracking/1000}s, considerando salida implícita")
-            // No enviamos evento aquí - esperamos a que el beacon entrada_salida lo confirme
+        // Si no hemos visto ningún beacon en más del timeout
+        if (lastBeaconTimestamp > 0 && timeSinceLastBeacon > EXIT_TIMEOUT_MS) {
+            Log.w(TAG, "⏰ Sin beacons por ${timeSinceLastBeacon/1000}s")
+            // El ZoneManager manejará esto con su propio timeout y notificará via onStableZoneChanged(null)
         }
     }
 
@@ -254,7 +230,9 @@ class ZoneEventService(
                 beaconMac = beaconMac,
                 zoneName = zoneName,
                 rssi = rssi,
-                timestamp = timestamp
+                timestamp = timestamp,
+                userRut = userRut,
+                userName = userName
             )
 
             Log.i(TAG, "📤 Enviando COMPANY_ENTRY: $zoneName")
@@ -286,7 +264,9 @@ class ZoneEventService(
                 beaconMac = beaconMac,
                 zoneName = zoneName,
                 rssi = rssi,
-                timestamp = timestamp
+                timestamp = timestamp,
+                userRut = userRut,
+                userName = userName
             )
 
             Log.i(TAG, "📤 Enviando COMPANY_EXIT: $zoneName")
@@ -320,7 +300,9 @@ class ZoneEventService(
                 zoneName = newZoneName,
                 fromZone = fromZoneName,
                 rssi = rssi,
-                timestamp = timestamp
+                timestamp = timestamp,
+                userRut = userRut,
+                userName = userName
             )
 
             Log.i(TAG, "📤 Enviando ZONE_CHANGE: $fromZoneName → $newZoneName")
@@ -342,9 +324,10 @@ class ZoneEventService(
     fun reset() {
         isInsideCompany = false
         currentZoneName = null
-        lastEntryBeaconId = null
-        lastEntryBeaconMac = null
-        lastTrackingBeaconTimestamp = 0L
+        currentBeaconId = null
+        currentBeaconMac = null
+        lastBeaconTimestamp = 0L
+        lastDetectedBeacons.clear()
         stop()
         Log.i(TAG, "🔄 ZoneEventService reset")
     }
@@ -357,11 +340,12 @@ class ZoneEventService(
             appendLine("=== ZoneEventService Debug ===")
             appendLine("Inside Company: $isInsideCompany")
             appendLine("Current Zone: ${currentZoneName ?: "NONE"}")
-            appendLine("Last Entry Beacon: ${lastEntryBeaconId ?: "N/A"}")
-            val trackingAgo = if (lastTrackingBeaconTimestamp > 0) {
-                "${(System.currentTimeMillis() - lastTrackingBeaconTimestamp) / 1000}s ago"
+            appendLine("Current Beacon: ${currentBeaconId ?: "N/A"}")
+            val beaconAgo = if (lastBeaconTimestamp > 0) {
+                "${(System.currentTimeMillis() - lastBeaconTimestamp) / 1000}s ago"
             } else "N/A"
-            appendLine("Last Tracking Beacon: $trackingAgo")
+            appendLine("Last Beacon: $beaconAgo")
+            appendLine("Cached Zones: ${lastDetectedBeacons.keys.joinToString(", ")}")
         }
     }
 }
