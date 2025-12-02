@@ -276,10 +276,29 @@ fun MainScreen(
         }
     }
 
+    // Estado para forzar refresh cuando la app vuelve al primer plano
+    var appResumeCounter by remember { mutableStateOf(0) }
+
+    // Observar el ciclo de vida para detectar cuando la app vuelve al primer plano
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                android.util.Log.i("MainActivity", "🔄 App resumed, triggering beacon sync...")
+                appResumeCounter++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     // Refrescar zonas cada vez que se abre la app y hay sesión iniciada
-    LaunchedEffect(currentUser) {
+    // Se ejecuta al login inicial Y cada vez que la app vuelve al primer plano
+    LaunchedEffect(currentUser, appResumeCounter) {
         if (currentUser != null) {
-            android.util.Log.i("MainActivity", "🔄 Usuario autenticado detectado, refrescando zonas...")
+            android.util.Log.i("MainActivity", "🔄 Sincronizando beacons del servidor (user=${currentUser?.name}, resume=$appResumeCounter)...")
             userRegistrationViewModel.refreshZones()
         }
     }
