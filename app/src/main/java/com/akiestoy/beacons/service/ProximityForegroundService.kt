@@ -254,18 +254,17 @@ class ProximityForegroundService : Service() {
             pendingZoneEventDao = pendingZoneEventDao
         )
 
-        // Cargar usuario logueado y configurarlo en ZoneEventService
+        // Observar cambios en el usuario logueado y actualizar ZoneEventService
+        // Esto permite que el servicio se actualice si el usuario hace login después de que el servicio inicie
         serviceScope.launch {
-            try {
-                val user = database.userDao().getCurrentUserOnce()
+            database.userDao().getCurrentUser().collect { user ->
                 if (user != null) {
                     zoneEventService.setUser(user.rut, user.name)
-                    Log.i(TAG, "👤 Usuario cargado: ${user.name} (RUT: ${user.rut})")
+                    Log.i(TAG, "👤 Usuario actualizado en ZoneEventService: ${user.name} (RUT: ${user.rut})")
                 } else {
-                    Log.w(TAG, "⚠️ No hay usuario logueado")
+                    zoneEventService.setUser(null, null)
+                    Log.w(TAG, "⚠️ No hay usuario logueado - eventos se enviarán sin identificación")
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error cargando usuario", e)
             }
         }
 
