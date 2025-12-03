@@ -348,8 +348,14 @@ class ZoneEventService(
      * @return true si el envío fue exitoso, false si falló
      */
     private suspend fun sendEventWithRetry(request: ZoneEventRequest): Boolean {
+        // VALIDACIÓN: No enviar eventos sin RUT - el backend requiere identificación del empleado
+        if (request.userRut.isNullOrBlank()) {
+            Log.w(TAG, "⚠️ NO SE ENVÍA ${request.eventType} - Usuario sin RUT (no ha iniciado sesión)")
+            return false
+        }
+
         try {
-            Log.i(TAG, "📤 Enviando ${request.eventType}: ${request.zoneName}")
+            Log.i(TAG, "📤 Enviando ${request.eventType}: ${request.zoneName} (RUT: ${request.userRut})")
             val response = api.sendZoneEvent(request)
 
             if (response.isSuccessful) {
@@ -377,6 +383,12 @@ class ZoneEventService(
         rssi: Int?,
         timestamp: Long
     ) {
+        // VALIDACIÓN: No guardar en cola eventos sin RUT - no tiene sentido reintentarlos
+        if (userRut.isNullOrBlank()) {
+            Log.w(TAG, "⚠️ NO SE GUARDA EN COLA $eventType - Usuario sin RUT")
+            return
+        }
+
         if (pendingZoneEventDao == null) {
             Log.w(TAG, "⚠️ No hay DAO configurado para cola offline")
             return
