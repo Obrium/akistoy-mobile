@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -19,7 +20,12 @@ import androidx.compose.ui.unit.dp
 import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.model.BLEScanLog
 import com.akiestoy.beacons.model.RegisteredBeacon
+import com.akiestoy.beacons.state.ApiEventLog
 import com.akiestoy.beacons.state.AppState
+import com.akiestoy.beacons.state.CurrentZoneState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.akiestoy.beacons.ui.BeaconViewModel
 import com.akiestoy.beacons.ui.components.SuperAdminDialog
 import com.akiestoy.beacons.viewmodel.SuperAdminViewModel
@@ -45,6 +51,9 @@ fun HomeScreen(
     // Estado para mostrar el dialog de super admin
     var showSuperAdminDialog by remember { mutableStateOf(false) }
 
+    // Estado para mostrar el dialog de confirmación de logout
+    var showLogoutConfirmDialog by remember { mutableStateOf(false) }
+
     // Estado para pull-to-refresh
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -53,6 +62,12 @@ fun HomeScreen(
 
     // Observar el beacon seleccionado manualmente
     val manuallySelectedBeaconMac by AppState.manuallySelectedBeaconMac.collectAsState()
+
+    // Observar estado de zona desde AppState (actualizado ANTES de enviar al backend)
+    val zoneState by AppState.zoneState.collectAsState()
+
+    // Observar logs de API desde AppState
+    val apiLogs by AppState.apiLogs.collectAsState()
 
     // Estado para beacons registrados (para obtener zona)
     var registeredBeacons by remember { mutableStateOf<List<RegisteredBeacon>>(emptyList()) }
@@ -96,35 +111,51 @@ fun HomeScreen(
     // Mantiene el último estado activo conocido durante un "grace period" de 25 segundos
     var lastKnownActiveState by remember { mutableStateOf<ConnectionState?>(null) }
 
-    // Calcular el estado de conexión con histéresis temporal
-    // Usa match por MAC (más confiable que UUID que puede repetirse)
-    val connectionState = remember(favoriteBeacons, updateTrigger, registeredBeacons) {
-        val newState = calculateConnectionState(favoriteBeacons, registeredBeacons)
+    // PRIORIDAD: Usar zoneState de AppState (actualizado por ZoneEventService ANTES de enviar al backend)
+    // Esto asegura que la UI muestre el estado correcto inmediatamente
+    val connectionState = remember(zoneState, favoriteBeacons, updateTrigger, registeredBeacons) {
+        val currentTime = System.currentTimeMillis()
 
-        if (newState.isActive) {
-            // Si está activo, actualizar y guardar el último estado conocido
-            lastKnownActiveState = newState
-            newState
+        // Si zoneState de AppState indica una zona activa, usarla como fuente principal
+        if (zoneState.isInsideCompany && zoneState.zoneName != null) {
+            val timeSinceUpdate = currentTime - zoneState.lastUpdate
+            val lastSeenSeconds = (timeSinceUpdate / 1000).toInt().coerceAtMost(25)
+
+            val state = ConnectionState(
+                isActive = true,
+                activeBeaconName = zoneState.zoneName,
+                zoneName = zoneState.zoneName,
+                rssi = zoneState.rssi,
+                lastSeenSeconds = lastSeenSeconds,
+                timestamp = zoneState.lastUpdate,
+                beaconMac = zoneState.beaconMac
+            )
+            lastKnownActiveState = state
+            state
         } else {
-            // Si no está activo, verificar si debemos mantener el último estado (grace period)
-            val lastActive = lastKnownActiveState
-            if (lastActive != null) {
-                val currentTime = System.currentTimeMillis()
-                val timeSinceLastActive = currentTime - lastActive.timestamp
+            // Fallback: usar cálculo basado en favoriteBeacons
+            val newState = calculateConnectionState(favoriteBeacons, registeredBeacons)
 
-                if (timeSinceLastActive < 25_000) { // 25 segundos de grace period (consistente con ZoneManager)
-                    // Mantener último estado conocido pero actualizar lastSeenSeconds
-                    lastActive.copy(
-                        lastSeenSeconds = (timeSinceLastActive / 1000).toInt()
-                    )
+            if (newState.isActive) {
+                lastKnownActiveState = newState
+                newState
+            } else {
+                // Verificar grace period
+                val lastActive = lastKnownActiveState
+                if (lastActive != null) {
+                    val timeSinceLastActive = currentTime - lastActive.timestamp
+
+                    if (timeSinceLastActive < 25_000) {
+                        lastActive.copy(
+                            lastSeenSeconds = (timeSinceLastActive / 1000).toInt()
+                        )
+                    } else {
+                        lastKnownActiveState = null
+                        newState
+                    }
                 } else {
-                    // Ya pasó el timeout de 25 segundos, mostrar INACTIVO
-                    lastKnownActiveState = null
                     newState
                 }
-            } else {
-                // No hay estado previo, mostrar el nuevo estado (INACTIVO)
-                newState
             }
         }
     }
@@ -159,6 +190,31 @@ fun HomeScreen(
                     }
                     success // Retornar el resultado
                 }
+        )
+    }
+
+    // Mostrar dialog de confirmación de logout
+    if (showLogoutConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirmDialog = false },
+            title = { Text("Cerrar Sesión") },
+            text = { Text("¿Estás seguro que deseas cerrar sesión? Deberás ingresar tu RUT nuevamente para volver a iniciar sesión.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutConfirmDialog = false
+                        userViewModel.clearUser()
+                        beaconViewModel.stopScanning()
+                    }
+                ) {
+                    Text("Cerrar Sesión", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutConfirmDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
         )
     }
 
@@ -351,10 +407,69 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Logs de API (debug) - Solo últimos 2 eventos
+                if (apiLogs.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "API Events",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                // Mostrar RUT del usuario
+                                currentUser?.rut?.let { rut ->
+                                    Text(
+                                        text = "RUT: $rut",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Mostrar solo los últimos 2 eventos
+                            apiLogs.take(2).forEach { log ->
+                                ApiLogItem(log = log)
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // Botón en la esquina superior derecha
+        // Botón de cerrar sesión del usuario (esquina superior izquierda)
+        if (currentUser != null) {
+            IconButton(
+                onClick = { showLogoutConfirmDialog = true },
+                modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                    contentDescription = "Cerrar sesión",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+        }
+
+        // Botón de Super Admin (esquina superior derecha)
         IconButton(
                 onClick = {
                     if (isSuperAdminAuthenticated) {
@@ -374,7 +489,7 @@ fun HomeScreen(
                         Icons.Default.Settings
                     },
                     contentDescription = if (isSuperAdminAuthenticated) {
-                        "Cerrar sesión"
+                        "Cerrar sesión SuperAdmin"
                     } else {
                         "Super Admin"
                     },
@@ -529,5 +644,78 @@ private fun calculateConnectionState(
         timestamp = finalBeacon.lastTimestamp,
         beaconMac = finalBeacon.mac
     )
+}
+
+/**
+ * Composable para mostrar un item de log de API
+ */
+@Composable
+private fun ApiLogItem(log: ApiEventLog) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    val timeStr = timeFormat.format(Date(log.timestamp))
+
+    // Color según status
+    val statusColor = when (log.status) {
+        "SUCCESS" -> Color(0xFF4CAF50) // Verde
+        "ERROR" -> Color(0xFFF44336) // Rojo
+        "SENDING" -> Color(0xFF2196F3) // Azul
+        "SKIPPED" -> Color(0xFFFF9800) // Naranja
+        else -> Color.Gray
+    }
+
+    // Icono según tipo de evento
+    val eventIcon = when (log.eventType) {
+        "COMPANY_ENTRY" -> "🚪"
+        "COMPANY_EXIT" -> "🚶"
+        "ZONE_CHANGE" -> "🔄"
+        "STAY" -> "💚"
+        else -> "📡"
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Hora
+        Text(
+            text = timeStr,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.width(60.dp)
+        )
+
+        // Icono y tipo de evento
+        Text(
+            text = "$eventIcon ${log.eventType}",
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+
+        // Status con color
+        Text(
+            text = log.status,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = statusColor
+        )
+    }
+
+    // Zona y mensaje
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(start = 60.dp)
+    ) {
+        Text(
+            text = buildString {
+                append(log.zoneName)
+                log.fromZone?.let { append(" (desde: $it)") }
+                log.message?.let { append(" - $it") }
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            maxLines = 1
+        )
+    }
 }
 

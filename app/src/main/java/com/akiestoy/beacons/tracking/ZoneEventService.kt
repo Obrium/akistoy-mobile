@@ -6,6 +6,9 @@ import com.akiestoy.beacons.data.PendingZoneEvent
 import com.akiestoy.beacons.data.PendingZoneEventDao
 import com.akiestoy.beacons.model.RegisteredBeacon
 import com.akiestoy.beacons.model.tracking.ZoneEventRequest
+import com.akiestoy.beacons.state.ApiEventLog
+import com.akiestoy.beacons.state.AppState
+import com.akiestoy.beacons.state.CurrentZoneState
 import com.akiestoy.beacons.state.ZoneInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -41,6 +44,20 @@ class ZoneEventService(
     private val TAG = "ZoneEventService"
 
     /**
+     * Agrega un log de evento a AppState (para mostrar en UI)
+     */
+    private fun addApiLog(log: ApiEventLog) {
+        AppState.addApiLog(log)
+    }
+
+    /**
+     * Actualiza el estado de zona en AppState (se muestra ANTES de enviar al backend)
+     */
+    private fun updateZoneState(state: CurrentZoneState) {
+        AppState.updateZoneState(state)
+    }
+
+    /**
      * Actualiza los datos del usuario (llamar después de login)
      */
     fun setUser(rut: String?, name: String?) {
@@ -71,6 +88,9 @@ class ZoneEventService(
         val timestamp: Long
     )
 
+    // Job para enviar STAY periódicamente
+    private var stayJob: Job? = null
+
     // Configuración
     companion object {
         // Tiempo sin beacons para considerar salida (25 segundos - igual que ZoneManager)
@@ -79,6 +99,8 @@ class ZoneEventService(
         private const val CHECK_INTERVAL_MS = 10_000L
         // Intervalo de reintento de cola offline (cada 30 segundos)
         private const val RETRY_QUEUE_INTERVAL_MS = 30_000L
+        // Intervalo de STAY/heartbeat (cada 60 segundos)
+        private const val STAY_INTERVAL_MS = 60_000L
         // Máximo de reintentos por evento
         private const val MAX_RETRY_COUNT = 3
         // Tiempo máximo para mantener eventos en cola (24 horas)
@@ -108,7 +130,18 @@ class ZoneEventService(
             }
         }
 
-        Log.i(TAG, "🚀 ZoneEventService started with offline queue support")
+        // Iniciar job de STAY/heartbeat cada 60 segundos
+        stayJob?.cancel()
+        stayJob = scope.launch {
+            // Esperar 30 segundos antes de enviar el primer STAY
+            delay(30_000L)
+            while (isActive) {
+                sendStayIfInsideCompany()
+                delay(STAY_INTERVAL_MS)
+            }
+        }
+
+        Log.i(TAG, "🚀 ZoneEventService started with STAY heartbeat (every 60s)")
     }
 
     /**
@@ -119,6 +152,8 @@ class ZoneEventService(
         exitCheckJob = null
         retryQueueJob?.cancel()
         retryQueueJob = null
+        stayJob?.cancel()
+        stayJob = null
         Log.i(TAG, "🛑 ZoneEventService stopped")
     }
 
@@ -159,19 +194,34 @@ class ZoneEventService(
         val now = System.currentTimeMillis()
 
         // Si newZone es null, ZoneManager perdió señal (timeout)
+        // OPTIMIZACIÓN: NO enviamos COMPANY_EXIT desde la app
+        // El backend ignora estos eventos y genera las salidas automáticamente
+        // via InactivityDetectionService cuando no hay actividad por 5+ minutos
+        // Esto reduce llamadas HTTP innecesarias
         if (newZone == null) {
             if (isInsideCompany && currentZoneName != null) {
-                // Enviar COMPANY_EXIT
-                val cachedBeacon = lastDetectedBeacons[currentZoneName]
-                sendCompanyExit(
-                    beaconId = cachedBeacon?.beaconId ?: "unknown",
-                    beaconMac = cachedBeacon?.beaconMac,
-                    zoneName = currentZoneName!!,
-                    rssi = cachedBeacon?.rssi ?: -100,
-                    timestamp = now
-                )
-                Log.i(TAG, "🚪 COMPANY_EXIT (timeout de ZoneManager)")
+                Log.i(TAG, "📵 Señal perdida - NO enviamos COMPANY_EXIT (el backend lo genera por inactividad)")
+                Log.d(TAG, "   Última zona: $currentZoneName")
 
+                // Actualizar estado de UI INMEDIATAMENTE (antes de cualquier operación)
+                updateZoneState(CurrentZoneState(
+                    zoneName = null,
+                    beaconMac = null,
+                    rssi = null,
+                    isInsideCompany = false,
+                    lastUpdate = now
+                ))
+
+                // Agregar log de evento (no enviado)
+                addApiLog(ApiEventLog(
+                    timestamp = now,
+                    eventType = "COMPANY_EXIT",
+                    zoneName = currentZoneName!!,
+                    status = "SKIPPED",
+                    message = "No se envía - backend genera por inactividad"
+                ))
+
+                // Solo actualizar estado local, sin enviar al backend
                 isInsideCompany = false
                 currentZoneName = null
                 currentBeaconId = null
@@ -182,6 +232,15 @@ class ZoneEventService(
 
         val newZoneName = newZone.beaconName
         val cachedBeacon = lastDetectedBeacons[newZoneName]
+
+        // ACTUALIZAR ESTADO DE UI INMEDIATAMENTE (antes de enviar al backend)
+        updateZoneState(CurrentZoneState(
+            zoneName = newZoneName,
+            beaconMac = cachedBeacon?.beaconMac,
+            rssi = newZone.rssi,
+            isInsideCompany = true,
+            lastUpdate = now
+        ))
 
         // Primera zona detectada = COMPANY_ENTRY
         if (!isInsideCompany) {
@@ -344,15 +403,96 @@ class ZoneEventService(
     }
 
     /**
+     * Verifica si estamos dentro de la empresa y envía STAY
+     * Se llama cada 60 segundos desde el stayJob
+     */
+    private suspend fun sendStayIfInsideCompany() {
+        if (!isInsideCompany || currentZoneName == null) {
+            Log.d(TAG, "💤 No se envía STAY - no estamos dentro de la empresa")
+            return
+        }
+
+        val cachedBeacon = lastDetectedBeacons[currentZoneName]
+        val now = System.currentTimeMillis()
+
+        // Verificar que hayamos visto beacons recientemente (últimos 30 segundos)
+        if (cachedBeacon == null || (now - cachedBeacon.timestamp) > 30_000L) {
+            Log.d(TAG, "💤 No se envía STAY - sin beacons recientes")
+            return
+        }
+
+        sendStay(
+            beaconId = cachedBeacon.beaconId,
+            beaconMac = cachedBeacon.beaconMac,
+            zoneName = currentZoneName!!,
+            rssi = cachedBeacon.rssi,
+            timestamp = now
+        )
+    }
+
+    /**
+     * Envía un evento STAY (heartbeat) para mantener lastActivity en el backend
+     * El backend usará esto para actualizar Redis y evitar salidas por inactividad
+     */
+    private suspend fun sendStay(
+        beaconId: String,
+        beaconMac: String?,
+        zoneName: String,
+        rssi: Int,
+        timestamp: Long
+    ) {
+        val request = ZoneEventRequest(
+            deviceId = deviceId,
+            tenantId = tenantId,
+            eventType = "STAY",
+            beaconId = beaconId,
+            beaconMac = beaconMac,
+            zoneName = zoneName,
+            rssi = rssi,
+            timestamp = timestamp,
+            userRut = userRut,
+            userName = userName
+        )
+
+        // Para STAY no guardamos en cola offline - si falla, el siguiente lo reintentará
+        val success = sendEventWithRetry(request)
+        if (success) {
+            Log.i(TAG, "💚 STAY enviado: $zoneName (RSSI: $rssi)")
+        } else {
+            Log.w(TAG, "⚠️ STAY falló: $zoneName - se reintentará en 60s")
+        }
+    }
+
+    /**
      * Envía un evento con reintento inmediato (1 vez)
      * @return true si el envío fue exitoso, false si falló
      */
     private suspend fun sendEventWithRetry(request: ZoneEventRequest): Boolean {
+        val now = System.currentTimeMillis()
+
         // VALIDACIÓN: No enviar eventos sin RUT - el backend requiere identificación del empleado
         if (request.userRut.isNullOrBlank()) {
             Log.w(TAG, "⚠️ NO SE ENVÍA ${request.eventType} - Usuario sin RUT (no ha iniciado sesión)")
+            addApiLog(ApiEventLog(
+                timestamp = now,
+                eventType = request.eventType,
+                zoneName = request.zoneName,
+                fromZone = request.fromZone,
+                status = "SKIPPED",
+                message = "Sin RUT - no ha iniciado sesión"
+            ))
             return false
         }
+
+        // Log SENDING antes de enviar
+        addApiLog(ApiEventLog(
+            timestamp = now,
+            eventType = request.eventType,
+            zoneName = request.zoneName,
+            fromZone = request.fromZone,
+            status = "SENDING",
+            message = "Enviando al backend..."
+        ))
 
         try {
             Log.i(TAG, "📤 Enviando ${request.eventType}: ${request.zoneName} (RUT: ${request.userRut})")
@@ -360,13 +500,37 @@ class ZoneEventService(
 
             if (response.isSuccessful) {
                 Log.i(TAG, "✅ ${request.eventType} enviado exitosamente")
+                addApiLog(ApiEventLog(
+                    timestamp = System.currentTimeMillis(),
+                    eventType = request.eventType,
+                    zoneName = request.zoneName,
+                    fromZone = request.fromZone,
+                    status = "SUCCESS",
+                    message = "HTTP ${response.code()} OK"
+                ))
                 return true
             } else {
                 Log.e(TAG, "❌ Error enviando ${request.eventType}: ${response.code()} - ${response.message()}")
+                addApiLog(ApiEventLog(
+                    timestamp = System.currentTimeMillis(),
+                    eventType = request.eventType,
+                    zoneName = request.zoneName,
+                    fromZone = request.fromZone,
+                    status = "ERROR",
+                    message = "HTTP ${response.code()}: ${response.message()}"
+                ))
                 return false
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Exception enviando ${request.eventType}: ${e.message}", e)
+            addApiLog(ApiEventLog(
+                timestamp = System.currentTimeMillis(),
+                eventType = request.eventType,
+                zoneName = request.zoneName,
+                fromZone = request.fromZone,
+                status = "ERROR",
+                message = "Exception: ${e.message}"
+            ))
             return false
         }
     }

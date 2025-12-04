@@ -5,6 +5,29 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
+ * Log de evento de API para mostrar en la UI
+ */
+data class ApiEventLog(
+    val timestamp: Long,
+    val eventType: String,
+    val zoneName: String,
+    val fromZone: String? = null,
+    val status: String, // "SENDING", "SUCCESS", "ERROR", "SKIPPED"
+    val message: String? = null
+)
+
+/**
+ * Estado actual de zona detectada (se actualiza ANTES de enviar al backend)
+ */
+data class CurrentZoneState(
+    val zoneName: String?,
+    val beaconMac: String?,
+    val rssi: Int?,
+    val isInsideCompany: Boolean,
+    val lastUpdate: Long
+)
+
+/**
  * Estado global de la aplicación (similar a Redux)
  * Mantiene información sobre la zona actual basada en el beacon más cercano
  */
@@ -22,6 +45,27 @@ object AppState {
      */
     private val _manuallySelectedBeaconMac = MutableStateFlow<String?>(null)
     val manuallySelectedBeaconMac: StateFlow<String?> = _manuallySelectedBeaconMac.asStateFlow()
+
+    /**
+     * Logs de eventos API (para debug en UI)
+     */
+    private val _apiLogs = MutableStateFlow<List<ApiEventLog>>(emptyList())
+    val apiLogs: StateFlow<List<ApiEventLog>> = _apiLogs.asStateFlow()
+
+    /**
+     * Estado actual de zona (se actualiza ANTES de enviar al backend)
+     */
+    private val _zoneState = MutableStateFlow(CurrentZoneState(
+        zoneName = null,
+        beaconMac = null,
+        rssi = null,
+        isInsideCompany = false,
+        lastUpdate = 0L
+    ))
+    val zoneState: StateFlow<CurrentZoneState> = _zoneState.asStateFlow()
+
+    // Máximo de logs a mantener
+    private const val MAX_LOGS = 20
 
     /**
      * Actualiza la zona actual basándose en el beacon más cercano
@@ -49,6 +93,32 @@ object AppState {
      */
     fun clearManuallySelectedBeacon() {
         _manuallySelectedBeaconMac.value = null
+    }
+
+    /**
+     * Agrega un log de evento API
+     */
+    fun addApiLog(log: ApiEventLog) {
+        val currentLogs = _apiLogs.value.toMutableList()
+        currentLogs.add(0, log) // Agregar al inicio
+        if (currentLogs.size > MAX_LOGS) {
+            currentLogs.removeAt(currentLogs.size - 1)
+        }
+        _apiLogs.value = currentLogs
+    }
+
+    /**
+     * Limpia los logs de API
+     */
+    fun clearApiLogs() {
+        _apiLogs.value = emptyList()
+    }
+
+    /**
+     * Actualiza el estado de zona (llamado ANTES de enviar al backend)
+     */
+    fun updateZoneState(state: CurrentZoneState) {
+        _zoneState.value = state
     }
 }
 
