@@ -35,12 +35,16 @@ class BeaconTrackingService(
 
     // Último beacon detectado
     private var lastBeaconId: String? = null
+    @Volatile
     private var lastBeaconTimestamp: Long = 0L
 
     // Jobs para timers
     private var exitTimerJob: Job? = null
     private var heartbeatJob: Job? = null
     private var signalCheckJob: Job? = null
+
+    // Scope controlado para timers (evita GlobalScope memory leak)
+    private var timerScope: CoroutineScope? = null
 
     // Control de logs (solo cada 5 segundos)
     private var lastLogTime = 0L
@@ -60,6 +64,9 @@ class BeaconTrackingService(
      * Verifica cada X segundos si hay señal de beacons (configurado en .env)
      */
     fun startSignalCheck(scope: CoroutineScope) {
+        // Guardar scope para usar en timers (evita GlobalScope)
+        timerScope = scope
+
         signalCheckJob?.cancel()
         signalCheckJob = scope.launch {
             while (isActive) {
@@ -172,7 +179,9 @@ class BeaconTrackingService(
 
     private fun startExitTimer() {
         exitTimerJob?.cancel()
-        exitTimerJob = kotlinx.coroutines.GlobalScope.launch {
+        // Usar timerScope en lugar de GlobalScope para evitar memory leaks
+        val scope = timerScope ?: return
+        exitTimerJob = scope.launch {
             Log.d(TAG, "⏱️ Exit timer started (${EXIT_DELAY_MS / 1000}s)")
             delay(EXIT_DELAY_MS)
 
@@ -196,7 +205,9 @@ class BeaconTrackingService(
 
     private fun startHeartbeat() {
         heartbeatJob?.cancel()
-        heartbeatJob = kotlinx.coroutines.GlobalScope.launch {
+        // Usar timerScope en lugar de GlobalScope para evitar memory leaks
+        val scope = timerScope ?: return
+        heartbeatJob = scope.launch {
             Log.i(TAG, "💓 Heartbeat started (interval: ${HEARTBEAT_INTERVAL_MS / 1000}s)")
             while (isActive && _currentState.value == BeaconState.INSIDE) {
                 delay(HEARTBEAT_INTERVAL_MS)
@@ -317,6 +328,7 @@ class BeaconTrackingService(
         cancelExitTimer()
         stopHeartbeat()
         stopSignalCheck()
+        timerScope = null  // Liberar referencia al scope
         Log.i(TAG, "🧹 Cleanup completed")
     }
 

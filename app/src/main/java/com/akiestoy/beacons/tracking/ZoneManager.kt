@@ -56,6 +56,10 @@ class ZoneManager {
         // Penalización de RSSI por tiempo sin señal (dB por segundo)
         // Beacon no visto en 6s pierde 3dB de "ventaja"
         const val RSSI_DECAY_PER_SECOND = 0.5
+
+        // Tiempo para considerar un beacon state "stale" y eliminarlo de memoria (ms)
+        // Limpia beacons no vistos en 60 segundos para prevenir memory leak
+        const val STALE_BEACON_CLEANUP_MS = 60_000L
     }
 
     // ==================== ESTADO INTERNO ====================
@@ -207,6 +211,21 @@ class ZoneManager {
     // ==================== LÓGICA INTERNA ====================
 
     /**
+     * Limpia estados de beacons que no se han visto en mucho tiempo
+     * Previene memory leak por acumulación indefinida de estados
+     */
+    private fun cleanupStaleBeaconStates(currentTime: Long) {
+        val initialSize = beaconStates.size
+        beaconStates.entries.removeIf { (_, state) ->
+            currentTime - state.lastSeenTimestamp > STALE_BEACON_CLEANUP_MS
+        }
+        val removed = initialSize - beaconStates.size
+        if (removed > 0) {
+            Log.d(TAG, "🧹 Limpieza: eliminados $removed beacon states inactivos")
+        }
+    }
+
+    /**
      * Evalúa si debe cambiar la zona activa
      * Implementa histéresis y confirmación por detecciones consecutivas
      *
@@ -214,6 +233,9 @@ class ZoneManager {
      * entre beacons vistos recientemente vs beacons con señal estancada
      */
     private fun evaluateZoneChange(currentTime: Long) {
+        // Limpiar beacons stale para prevenir memory leak
+        cleanupStaleBeaconStates(currentTime)
+
         // Obtener beacon más cercano usando RSSI efectivo (con penalización temporal)
         val activeBeacons = beaconStates.values.filter { it.isActive(currentTime) }
 

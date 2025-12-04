@@ -26,6 +26,8 @@ import com.akiestoy.beacons.tracking.BeaconTrackingService
 import com.akiestoy.beacons.tracking.EventBatcher
 import com.akiestoy.beacons.tracking.ZoneEventService
 import com.akiestoy.beacons.tracking.ZoneManager
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,9 +58,13 @@ class ProximityForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "ProximityServiceChannel"
         private const val NOTIFICATION_ID = 1002
+        private const val RESTART_DEBOUNCE_MS = 5000L  // 5 segundos entre reinicios
 
         @Volatile
         private var isRunning = false
+
+        @Volatile
+        private var lastRestartAttemptTimestamp = 0L
 
         fun startService(context: Context) {
             val intent = Intent(context, ProximityForegroundService::class.java)
@@ -154,52 +160,91 @@ class ProximityForegroundService : Service() {
         Log.i(TAG, "🛑 Service destroyed")
 
         // Liberar Wake Lock
-        wakeLock?.let {
-            if (it.isHeld) {
-                it.release()
-                Log.i(TAG, "🔋 Wake Lock liberado")
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    Log.i(TAG, "🔋 Wake Lock liberado")
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing wake lock", e)
         }
 
-        // Detener escaneo
+        // Detener escaneo (con verificación de inicialización)
         try {
-            proximityScanner.stopScanning()
+            if (::proximityScanner.isInitialized) {
+                proximityScanner.stopScanning()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping scanner", e)
         }
 
-        // Limpiar tracking service
+        // Limpiar tracking service (con verificación de inicialización)
         try {
-            trackingService.cleanup()
+            if (::trackingService.isInitialized) {
+                trackingService.cleanup()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error cleaning up tracking service", e)
         }
 
-        // Limpiar ZoneManager
+        // Limpiar ZoneManager (con verificación de inicialización)
         try {
-            zoneManager.reset()
+            if (::zoneManager.isInitialized) {
+                zoneManager.reset()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error resetting zone manager", e)
         }
 
-        // Limpiar ZoneEventService
+        // Limpiar ZoneEventService (con verificación de inicialización)
         try {
-            zoneEventService.reset()
+            if (::zoneEventService.isInitialized) {
+                zoneEventService.reset()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error resetting zone event service", e)
         }
 
         // Cancelar coroutines
-        serviceScope.cancel()
+        try {
+            serviceScope.cancel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling service scope", e)
+        }
 
-        Log.d(TAG, "Final state: ${trackingService.getStateInfo()}")
+        try {
+            if (::trackingService.isInitialized) {
+                Log.d(TAG, "Final state: ${trackingService.getStateInfo()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting final state info", e)
+        }
 
         // Enviar broadcast para reiniciar el servicio si fue detenido inesperadamente
-        val restartServiceIntent = Intent("com.akiestoy.beacons.RESTART_SERVICE")
-        restartServiceIntent.setPackage(packageName)
-        sendBroadcast(restartServiceIntent)
+        // DEBOUNCE: Prevenir loop infinito de restart → crash → restart
+        val now = System.currentTimeMillis()
+        val timeSinceLastRestart = now - lastRestartAttemptTimestamp
 
-        Log.i(TAG, "📡 Restart broadcast sent")
+        if (timeSinceLastRestart > RESTART_DEBOUNCE_MS) {
+            lastRestartAttemptTimestamp = now
+
+            // Usar Handler para agregar delay antes del restart
+            // Esto da tiempo al sistema para limpiar recursos
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    val restartServiceIntent = Intent("com.akiestoy.beacons.RESTART_SERVICE")
+                    restartServiceIntent.setPackage(packageName)
+                    sendBroadcast(restartServiceIntent)
+                    Log.i(TAG, "📡 Restart broadcast sent (debounced)")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending restart broadcast", e)
+                }
+            }, 3000)  // 3 segundos de delay antes de intentar reiniciar
+        } else {
+            Log.w(TAG, "⚠️ Restart broadcast skipped (debounce: ${timeSinceLastRestart}ms < ${RESTART_DEBOUNCE_MS}ms)")
+        }
 
         super.onDestroy()
     }
