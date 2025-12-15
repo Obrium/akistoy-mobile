@@ -12,9 +12,12 @@ import android.content.Context
 import android.os.ParcelUuid
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -31,37 +34,65 @@ class ProximityBeaconScanner(
 
     private val bluetoothManager: BluetoothManager =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-    private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
-    private val bluetoothLeScanner: BluetoothLeScanner? = bluetoothAdapter?.bluetoothLeScanner
+
+    // Obtener scanner fresh cada vez (para recuperarse de estados corruptos)
+    private fun getBluetoothLeScanner(): BluetoothLeScanner? {
+        return bluetoothManager.adapter?.bluetoothLeScanner
+    }
 
     private var scanCallback: ScanCallback? = null
+    private var currentScope: CoroutineScope? = null
+    private var retryJob: Job? = null
 
     // Estado del scanner
     private val _isScanning = MutableStateFlow(false)
     val isScanning: Flow<Boolean> = _isScanning.asStateFlow()
 
+    // Timestamp de última detección (para watchdog)
+    @Volatile
+    var lastDetectionTimestamp: Long = 0L
+        private set
+
+    // Contador de errores consecutivos
+    private var consecutiveErrors = 0
+    private var lastErrorTimestamp = 0L
+
     companion object {
         // UUID de los beacons iBeacon (formato Apple)
         private const val IBEACON_UUID = "e2c56db5-dffb-48d2-b060-d0f5a71096e0"
+
+        // Configuración de retry
+        private const val MAX_CONSECUTIVE_ERRORS = 5
+        private const val INITIAL_RETRY_DELAY_MS = 2000L
+        private const val MAX_RETRY_DELAY_MS = 30000L
+        private const val ERROR_RESET_WINDOW_MS = 60000L // Reset error count después de 1 min sin errores
     }
 
     /**
-     * Inicia el escaneo BLE en modo LOW_LATENCY
+     * Inicia el escaneo BLE en modo BALANCED
+     * Incluye auto-recovery si el scan falla
      */
     @SuppressLint("MissingPermission")
     fun startScanning(scope: CoroutineScope) {
+        currentScope = scope
+
         if (_isScanning.value) {
             Log.w(TAG, "⚠️ Scanning already in progress")
             return
         }
 
+        val bluetoothAdapter = bluetoothManager.adapter
+        val bluetoothLeScanner = getBluetoothLeScanner()
+
         if (bluetoothAdapter == null || bluetoothLeScanner == null) {
             Log.e(TAG, "❌ Bluetooth not available on this device")
+            scheduleRetry(scope, "Bluetooth not available")
             return
         }
 
         if (!bluetoothAdapter.isEnabled) {
             Log.e(TAG, "❌ Bluetooth is disabled")
+            scheduleRetry(scope, "Bluetooth disabled")
             return
         }
 
@@ -83,18 +114,26 @@ class ProximityBeaconScanner(
         // Crear callback para recibir resultados
         scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
+                // Reset error count on successful scan
+                consecutiveErrors = 0
                 handleScanResult(result, scope)
             }
 
             override fun onBatchScanResults(results: MutableList<ScanResult>) {
+                // Reset error count on successful scan
+                consecutiveErrors = 0
                 results.forEach { result ->
                     handleScanResult(result, scope)
                 }
             }
 
             override fun onScanFailed(errorCode: Int) {
-                Log.e(TAG, "Scan failed with error code: $errorCode")
+                val errorName = getScanErrorName(errorCode)
+                Log.e(TAG, "❌ Scan failed with error: $errorName (code: $errorCode)")
                 _isScanning.value = false
+
+                // Auto-recovery: programar reintento
+                handleScanError(scope, errorCode)
             }
         }
 
@@ -102,12 +141,113 @@ class ProximityBeaconScanner(
         try {
             bluetoothLeScanner.startScan(scanFilters, scanSettings, scanCallback)
             _isScanning.value = true
+            lastDetectionTimestamp = System.currentTimeMillis() // Inicializar timestamp
             Log.i(TAG, "✅ BLE scan started successfully")
 
         } catch (e: SecurityException) {
             Log.e(TAG, "❌ Permission denied for BLE scanning", e)
+            scheduleRetry(scope, "Permission denied")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error starting BLE scan", e)
+            scheduleRetry(scope, e.message ?: "Unknown error")
+        }
+    }
+
+    /**
+     * Maneja errores de escaneo e intenta recuperación automática
+     */
+    private fun handleScanError(scope: CoroutineScope, errorCode: Int) {
+        val now = System.currentTimeMillis()
+
+        // Reset error count si ha pasado suficiente tiempo desde el último error
+        if (now - lastErrorTimestamp > ERROR_RESET_WINDOW_MS) {
+            consecutiveErrors = 0
+        }
+
+        lastErrorTimestamp = now
+        consecutiveErrors++
+
+        when (errorCode) {
+            ScanCallback.SCAN_FAILED_ALREADY_STARTED -> {
+                // El scan ya está corriendo, solo actualizar estado
+                Log.w(TAG, "⚠️ Scan already started, updating state")
+                _isScanning.value = true
+            }
+            ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> {
+                // Error crítico: reintentar después de delay
+                Log.e(TAG, "🔄 App registration failed, will retry...")
+                scheduleRetry(scope, "App registration failed")
+            }
+            ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED -> {
+                // No reintentar - el dispositivo no soporta BLE
+                Log.e(TAG, "❌ BLE scanning not supported on this device")
+            }
+            ScanCallback.SCAN_FAILED_INTERNAL_ERROR -> {
+                // Error interno de BLE stack - necesita reinicio
+                Log.e(TAG, "🔄 Internal BLE error, will retry with fresh scanner...")
+                scheduleRetry(scope, "Internal BLE error")
+            }
+            else -> {
+                Log.e(TAG, "🔄 Unknown scan error, will retry...")
+                scheduleRetry(scope, "Unknown error: $errorCode")
+            }
+        }
+    }
+
+    /**
+     * Programa un reintento de escaneo con backoff exponencial
+     */
+    private fun scheduleRetry(scope: CoroutineScope, reason: String) {
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            Log.e(TAG, "❌ Max consecutive errors ($MAX_CONSECUTIVE_ERRORS) reached. Stopping retries.")
+            Log.e(TAG, "💡 Manual restart required (reopen app or restart phone)")
+            return
+        }
+
+        // Calcular delay con backoff exponencial
+        val delayMs = (INITIAL_RETRY_DELAY_MS * (1 shl consecutiveErrors.coerceAtMost(4)))
+            .coerceAtMost(MAX_RETRY_DELAY_MS)
+
+        Log.i(TAG, "🔄 Scheduling retry #${consecutiveErrors} in ${delayMs}ms (reason: $reason)")
+
+        retryJob?.cancel()
+        retryJob = scope.launch {
+            delay(delayMs)
+            Log.i(TAG, "🔄 Retrying scan...")
+            startScanning(scope)
+        }
+    }
+
+    /**
+     * Obtiene nombre legible del error de scan
+     */
+    private fun getScanErrorName(errorCode: Int): String {
+        return when (errorCode) {
+            ScanCallback.SCAN_FAILED_ALREADY_STARTED -> "ALREADY_STARTED"
+            ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED -> "APP_REGISTRATION_FAILED"
+            ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED -> "FEATURE_UNSUPPORTED"
+            ScanCallback.SCAN_FAILED_INTERNAL_ERROR -> "INTERNAL_ERROR"
+            5 -> "OUT_OF_HARDWARE_RESOURCES"
+            6 -> "SCANNING_TOO_FREQUENTLY"
+            else -> "UNKNOWN($errorCode)"
+        }
+    }
+
+    /**
+     * Fuerza un reinicio completo del scanner
+     * Útil cuando el scanner está en estado corrupto
+     */
+    @SuppressLint("MissingPermission")
+    fun forceRestart() {
+        Log.w(TAG, "🔄 Force restarting scanner...")
+        consecutiveErrors = 0
+        stopScanning()
+
+        currentScope?.let { scope ->
+            scope.launch {
+                delay(1000) // Dar tiempo al sistema para limpiar
+                startScanning(scope)
+            }
         }
     }
 
@@ -116,17 +256,22 @@ class ProximityBeaconScanner(
      */
     @SuppressLint("MissingPermission")
     fun stopScanning() {
+        Log.i(TAG, "🛑 Stopping BLE scanning...")
+
+        // Cancelar retry pendiente
+        retryJob?.cancel()
+        retryJob = null
+
         if (!_isScanning.value) {
             Log.w(TAG, "⚠️ Scanning is not active")
             return
         }
 
-        Log.i(TAG, "🛑 Stopping BLE scanning...")
-
         try {
             scanCallback?.let { callback ->
-                bluetoothLeScanner?.stopScan(callback)
+                getBluetoothLeScanner()?.stopScan(callback)
             }
+            scanCallback = null
             _isScanning.value = false
 
             Log.i(TAG, "✅ BLE scan stopped successfully")
@@ -136,6 +281,17 @@ class ProximityBeaconScanner(
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error stopping BLE scan", e)
         }
+    }
+
+    /**
+     * Verifica si el scanner está realmente funcionando
+     * (no solo marcado como "scanning" pero sin detecciones)
+     */
+    fun isHealthy(maxSilenceMs: Long = 60000L): Boolean {
+        if (!_isScanning.value) return false
+
+        val timeSinceLastDetection = System.currentTimeMillis() - lastDetectionTimestamp
+        return timeSinceLastDetection < maxSilenceMs
     }
 
     /**
@@ -174,6 +330,9 @@ class ProximityBeaconScanner(
         val device = result.device
         val rssi = result.rssi
         val macAddress = device.address
+
+        // Actualizar timestamp de última detección (cualquier beacon BLE)
+        lastDetectionTimestamp = System.currentTimeMillis()
 
         // Verificar si es un iBeacon válido
         val scanRecord = result.scanRecord

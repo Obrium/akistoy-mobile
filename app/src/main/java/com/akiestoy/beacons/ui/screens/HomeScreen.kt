@@ -27,6 +27,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.akiestoy.beacons.ui.BeaconViewModel
+import com.akiestoy.beacons.ui.components.PermissionStatusCard
 import com.akiestoy.beacons.ui.components.SuperAdminDialog
 import com.akiestoy.beacons.viewmodel.SuperAdminViewModel
 import com.akiestoy.beacons.viewmodel.UserRegistrationViewModel
@@ -39,7 +40,8 @@ import androidx.compose.ui.platform.LocalContext
 fun HomeScreen(
         userViewModel: UserRegistrationViewModel,
         beaconViewModel: BeaconViewModel,
-        superAdminViewModel: SuperAdminViewModel
+        superAdminViewModel: SuperAdminViewModel,
+        onRequestPermissions: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val currentUser by userViewModel.currentUser.collectAsState()
@@ -302,6 +304,13 @@ fun HomeScreen(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Panel de estado de permisos y servicio
+                PermissionStatusCard(
+                    onRequestPermissions = onRequestPermissions
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 

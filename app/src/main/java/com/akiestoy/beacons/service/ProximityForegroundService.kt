@@ -108,21 +108,36 @@ class ProximityForegroundService : Service() {
         isRunning = true
         Log.i(TAG, "🚀 ProximityForegroundService created")
 
-        // Adquirir Wake Lock para mantener el CPU activo con pantalla bloqueada
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "AkiEstoy::BeaconScanningWakeLock"
-        ).apply {
-            acquire()
-            Log.i(TAG, "🔋 Wake Lock adquirido - el CPU se mantendrá activo")
+        try {
+            // Crear canal y notificación PRIMERO (requerido para foreground service)
+            createNotificationChannel()
+            startForeground(NOTIFICATION_ID, createNotification("Inicializando..."))
+
+            // Adquirir Wake Lock para mantener el CPU activo con pantalla bloqueada
+            try {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "AkiEstoy::BeaconScanningWakeLock"
+                ).apply {
+                    acquire()
+                    Log.i(TAG, "🔋 Wake Lock adquirido - el CPU se mantendrá activo")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "⚠️ Error adquiriendo Wake Lock (no crítico)", e)
+            }
+
+            // Inicializar componentes
+            initializeComponents()
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error crítico en onCreate", e)
+            // Intentar mostrar al menos la notificación para evitar crash
+            try {
+                updateNotification("Error de inicialización", 0)
+            } catch (e2: Exception) {
+                Log.e(TAG, "❌ No se pudo actualizar notificación", e2)
+            }
         }
-
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification("Inicializando..."))
-
-        // Inicializar componentes
-        initializeComponents()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -132,8 +147,12 @@ class ProximityForegroundService : Service() {
             Log.w(TAG, "⚠️ Service restarted by system (intent is null)")
         }
 
-        // Iniciar escaneo
-        startProximityScanning()
+        // Iniciar escaneo con protección contra crashes
+        try {
+            startProximityScanning()
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error iniciando escaneo en onStartCommand", e)
+        }
 
         // START_STICKY: Si el sistema mata el servicio, lo reiniciará automáticamente
         // pero sin reenviar el Intent original (será null)
@@ -437,6 +456,9 @@ class ProximityForegroundService : Service() {
             // Iniciar verificación periódica de timeout del ZoneManager
             startZoneTimeoutCheck()
 
+            // Iniciar watchdog que verifica la salud del scanner
+            startScannerWatchdog()
+
             updateNotification("Escaneando...", 0)
             Log.i(TAG, "🔍 Proximity scanning started with OPTIMIZED events (ZoneEventService)")
         } catch (e: Exception) {
@@ -454,6 +476,51 @@ class ProximityForegroundService : Service() {
                 kotlinx.coroutines.delay(5000) // Cada 5 segundos
                 if (zoneManager.checkTimeout()) {
                     Log.w(TAG, "⏰ ZoneManager reportó timeout - sin beacons activos")
+                }
+            }
+        }
+    }
+
+    /**
+     * Inicia el watchdog del scanner BLE
+     * Verifica cada 30 segundos que el scanner esté realmente funcionando
+     * Si detecta que el scanner está "muerto" (sin detecciones), lo reinicia
+     */
+    private fun startScannerWatchdog() {
+        serviceScope.launch {
+            // Esperar 60 segundos iniciales antes de empezar a verificar
+            kotlinx.coroutines.delay(60000)
+
+            while (true) {
+                kotlinx.coroutines.delay(30000) // Verificar cada 30 segundos
+
+                try {
+                    // Verificar si el scanner está "saludable"
+                    // Un scanner saludable debe haber detectado algo en los últimos 2 minutos
+                    val isHealthy = proximityScanner.isHealthy(maxSilenceMs = 120000)
+                    val timeSinceLastDetection = System.currentTimeMillis() - proximityScanner.lastDetectionTimestamp
+
+                    if (!isHealthy && timeSinceLastDetection > 120000) {
+                        Log.w(TAG, "⚠️ WATCHDOG: Scanner appears unhealthy!")
+                        Log.w(TAG, "   └─ lastDetection: ${timeSinceLastDetection}ms ago")
+
+                        // Verificar si Bluetooth sigue activo
+                        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
+                        val bluetoothEnabled = bluetoothManager.adapter?.isEnabled == true
+
+                        if (!bluetoothEnabled) {
+                            Log.e(TAG, "❌ WATCHDOG: Bluetooth is disabled! Cannot restart scanner.")
+                            updateNotification("Bluetooth desactivado", 0)
+                        } else {
+                            Log.i(TAG, "🔄 WATCHDOG: Forcing scanner restart...")
+                            proximityScanner.forceRestart()
+                            updateNotification("Reiniciando scanner...", 0)
+                        }
+                    } else {
+                        Log.d(TAG, "✅ WATCHDOG: Scanner is healthy (last detection ${timeSinceLastDetection}ms ago)")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ WATCHDOG: Error checking scanner health", e)
                 }
             }
         }

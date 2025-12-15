@@ -137,16 +137,41 @@ class MainActivity : ComponentActivity() {
         android.util.Log.i("MainActivity", "📱 onResume called")
 
         // Verificar y reiniciar el servicio si está detenido pero debería estar activo
-        if (hasPermissions) {
-            val isServiceRunning = ProximityForegroundService.isServiceRunning(this)
-            android.util.Log.i("MainActivity", "🔍 Service running status: $isServiceRunning")
+        try {
+            if (hasPermissions) {
+                val isServiceRunning = ProximityForegroundService.isServiceRunning(this)
+                android.util.Log.i("MainActivity", "🔍 Service running status: $isServiceRunning")
 
-            if (!isServiceRunning) {
-                android.util.Log.w("MainActivity", "⚠️ Service not running! Restarting...")
-                startBackgroundService()
-            } else {
-                android.util.Log.i("MainActivity", "✅ Service already running")
+                if (!isServiceRunning) {
+                    android.util.Log.w("MainActivity", "⚠️ Service not running! Restarting...")
+                    startBackgroundService()
+                } else {
+                    android.util.Log.i("MainActivity", "✅ Service already running")
+                }
             }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "❌ Error en onResume verificando servicio", e)
+        }
+    }
+
+    /**
+     * Fuerza una verificación de salud del servicio
+     * Si el servicio está corriendo pero el scanner está muerto, lo reinicia
+     */
+    private fun forceServiceHealthCheck() {
+        // Detener y reiniciar el servicio para forzar un reinicio limpio del scanner
+        // Esto es más agresivo pero garantiza que el scanner se reinicie
+        try {
+            ProximityForegroundService.stopService(this)
+            // Pequeño delay antes de reiniciar
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                ProximityForegroundService.startService(this)
+                android.util.Log.i("MainActivity", "✅ Service restarted for health check")
+            }, 500)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error during health check restart", e)
+            // Si falla, intentar solo iniciar
+            startBackgroundService()
         }
     }
 
@@ -180,6 +205,13 @@ class MainActivity : ComponentActivity() {
      */
     private fun startBackgroundService() {
         try {
+            // Verificar que el Bluetooth está disponible antes de iniciar
+            val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager
+            if (bluetoothManager?.adapter == null) {
+                android.util.Log.w("MainActivity", "⚠️ Bluetooth not available, skipping service start")
+                return
+            }
+
             ProximityForegroundService.startService(this)
             android.util.Log.i("MainActivity", "🚀 ProximityForegroundService started automatically")
         } catch (e: Exception) {
@@ -348,7 +380,8 @@ fun MainScreen(
                 HomeScreen(
                         userViewModel = userRegistrationViewModel,
                         beaconViewModel = viewModel,
-                        superAdminViewModel = superAdminViewModel
+                        superAdminViewModel = superAdminViewModel,
+                        onRequestPermissions = onRequestPermissions
                 )
             }
             composable(NavDestination.Scanner.route) {
