@@ -33,6 +33,7 @@ import com.akiestoy.beacons.viewmodel.SuperAdminViewModel
 import com.akiestoy.beacons.viewmodel.UserRegistrationViewModel
 import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalContext
+import com.akiestoy.beacons.BuildConfig
 
 /** Pantalla principal de Home Muestra el estado de conexión con beacons favoritos */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -460,6 +461,17 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                // Versión de la app (al final)
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "v${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
 

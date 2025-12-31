@@ -485,39 +485,68 @@ class ProximityForegroundService : Service() {
      * Inicia el watchdog del scanner BLE
      * Verifica cada 30 segundos que el scanner esté realmente funcionando
      * Si detecta que el scanner está "muerto" (sin detecciones), lo reinicia
+     *
+     * MEJORAS:
+     * - Distingue entre "scanner muerto" vs "sin beacons cerca"
+     * - Usa el nuevo sistema de diagnóstico del scanner
+     * - Reinicia más agresivamente si hay muchos errores
      */
     private fun startScannerWatchdog() {
         serviceScope.launch {
             // Esperar 60 segundos iniciales antes de empezar a verificar
             kotlinx.coroutines.delay(60000)
 
+            var consecutiveUnhealthyChecks = 0
+
             while (true) {
                 kotlinx.coroutines.delay(30000) // Verificar cada 30 segundos
 
                 try {
-                    // Verificar si el scanner está "saludable"
-                    // Un scanner saludable debe haber detectado algo en los últimos 2 minutos
+                    val now = System.currentTimeMillis()
                     val isHealthy = proximityScanner.isHealthy(maxSilenceMs = 120000)
-                    val timeSinceLastDetection = System.currentTimeMillis() - proximityScanner.lastDetectionTimestamp
+                    val lastDetection = proximityScanner.lastDetectionTimestamp
+                    val timeSinceLastDetection = if (lastDetection > 0) now - lastDetection else -1L
+                    val totalDetections = proximityScanner.totalDetectionCount
 
-                    if (!isHealthy && timeSinceLastDetection > 120000) {
-                        Log.w(TAG, "⚠️ WATCHDOG: Scanner appears unhealthy!")
-                        Log.w(TAG, "   └─ lastDetection: ${timeSinceLastDetection}ms ago")
+                    // Verificar si Bluetooth sigue activo
+                    val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
+                    val bluetoothEnabled = bluetoothManager.adapter?.isEnabled == true
 
-                        // Verificar si Bluetooth sigue activo
-                        val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
-                        val bluetoothEnabled = bluetoothManager.adapter?.isEnabled == true
+                    if (!bluetoothEnabled) {
+                        Log.e(TAG, "❌ WATCHDOG: Bluetooth is disabled!")
+                        updateNotification("Bluetooth desactivado", 0)
+                        consecutiveUnhealthyChecks = 0
+                        continue
+                    }
 
-                        if (!bluetoothEnabled) {
-                            Log.e(TAG, "❌ WATCHDOG: Bluetooth is disabled! Cannot restart scanner.")
-                            updateNotification("Bluetooth desactivado", 0)
-                        } else {
+                    if (!isHealthy) {
+                        consecutiveUnhealthyChecks++
+                        Log.w(TAG, "⚠️ WATCHDOG: Scanner unhealthy (check #$consecutiveUnhealthyChecks)")
+                        Log.w(TAG, "   └─ lastDetection: ${if (timeSinceLastDetection >= 0) "${timeSinceLastDetection/1000}s ago" else "NEVER"}")
+                        Log.w(TAG, "   └─ totalDetections: $totalDetections")
+                        Log.d(TAG, proximityScanner.getDiagnosticInfo())
+
+                        // Reiniciar si:
+                        // 1. Han pasado más de 2 minutos sin detección Y hubo detecciones antes
+                        // 2. O si llevamos 3+ checks unhealthy consecutivos (1.5 minutos)
+                        val shouldRestart = (timeSinceLastDetection > 120000 && totalDetections > 0) ||
+                                           consecutiveUnhealthyChecks >= 3
+
+                        if (shouldRestart) {
                             Log.i(TAG, "🔄 WATCHDOG: Forcing scanner restart...")
                             proximityScanner.forceRestart()
                             updateNotification("Reiniciando scanner...", 0)
+                            consecutiveUnhealthyChecks = 0
+                        } else {
+                            Log.d(TAG, "📊 WATCHDOG: Waiting for more checks before restart (might just be no beacons nearby)")
                         }
                     } else {
-                        Log.d(TAG, "✅ WATCHDOG: Scanner is healthy (last detection ${timeSinceLastDetection}ms ago)")
+                        if (consecutiveUnhealthyChecks > 0) {
+                            Log.i(TAG, "✅ WATCHDOG: Scanner recovered (was unhealthy for $consecutiveUnhealthyChecks checks)")
+                        } else {
+                            Log.d(TAG, "✅ WATCHDOG: Scanner healthy (detections: $totalDetections)")
+                        }
+                        consecutiveUnhealthyChecks = 0
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "❌ WATCHDOG: Error checking scanner health", e)

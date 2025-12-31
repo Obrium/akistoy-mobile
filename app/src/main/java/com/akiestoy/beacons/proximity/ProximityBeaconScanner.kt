@@ -53,6 +53,16 @@ class ProximityBeaconScanner(
     var lastDetectionTimestamp: Long = 0L
         private set
 
+    // Timestamp de último inicio de escaneo (para detectar zombies)
+    @Volatile
+    var lastScanStartTimestamp: Long = 0L
+        private set
+
+    // Contador de detecciones totales (para verificar que el scanner está funcionando)
+    @Volatile
+    var totalDetectionCount: Long = 0L
+        private set
+
     // Contador de errores consecutivos
     private var consecutiveErrors = 0
     private var lastErrorTimestamp = 0L
@@ -62,7 +72,9 @@ class ProximityBeaconScanner(
         private const val IBEACON_UUID = "e2c56db5-dffb-48d2-b060-d0f5a71096e0"
 
         // Configuración de retry
-        private const val MAX_CONSECUTIVE_ERRORS = 5
+        // AUMENTADO: 5 era muy bajo - en un día pueden haber varios glitches de BLE
+        // Con el watchdog activo, no hay riesgo de loops infinitos
+        private const val MAX_CONSECUTIVE_ERRORS = 20
         private const val INITIAL_RETRY_DELAY_MS = 2000L
         private const val MAX_RETRY_DELAY_MS = 30000L
         private const val ERROR_RESET_WINDOW_MS = 60000L // Reset error count después de 1 min sin errores
@@ -141,8 +153,11 @@ class ProximityBeaconScanner(
         try {
             bluetoothLeScanner.startScan(scanFilters, scanSettings, scanCallback)
             _isScanning.value = true
-            lastDetectionTimestamp = System.currentTimeMillis() // Inicializar timestamp
-            Log.i(TAG, "✅ BLE scan started successfully")
+            lastScanStartTimestamp = System.currentTimeMillis()
+            // NOTA: Ya no inicializamos lastDetectionTimestamp aquí
+            // Esto permite que el watchdog detecte si el scanner nunca ha detectado nada
+            // después de un tiempo razonable (indica scanner zombie o sin beacons cerca)
+            Log.i(TAG, "✅ BLE scan started successfully (detection count: $totalDetectionCount)")
 
         } catch (e: SecurityException) {
             Log.e(TAG, "❌ Permission denied for BLE scanning", e)
@@ -196,17 +211,25 @@ class ProximityBeaconScanner(
 
     /**
      * Programa un reintento de escaneo con backoff exponencial
+     * NOTA: Ya no se rinde completamente - siempre sigue intentando con delay máximo
+     * El watchdog también puede forzar un restart si detecta problemas
      */
     private fun scheduleRetry(scope: CoroutineScope, reason: String) {
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-            Log.e(TAG, "❌ Max consecutive errors ($MAX_CONSECUTIVE_ERRORS) reached. Stopping retries.")
-            Log.e(TAG, "💡 Manual restart required (reopen app or restart phone)")
-            return
+        // Ya no abandonamos después de MAX_CONSECUTIVE_ERRORS
+        // En su lugar, usamos delay máximo para no saturar el sistema
+        val useMaxDelay = consecutiveErrors >= MAX_CONSECUTIVE_ERRORS
+
+        if (useMaxDelay) {
+            Log.w(TAG, "⚠️ Muchos errores consecutivos ($consecutiveErrors), usando delay máximo")
         }
 
-        // Calcular delay con backoff exponencial
-        val delayMs = (INITIAL_RETRY_DELAY_MS * (1 shl consecutiveErrors.coerceAtMost(4)))
-            .coerceAtMost(MAX_RETRY_DELAY_MS)
+        // Calcular delay con backoff exponencial (máximo 30 segundos)
+        val delayMs = if (useMaxDelay) {
+            MAX_RETRY_DELAY_MS
+        } else {
+            (INITIAL_RETRY_DELAY_MS * (1 shl consecutiveErrors.coerceAtMost(4)))
+                .coerceAtMost(MAX_RETRY_DELAY_MS)
+        }
 
         Log.i(TAG, "🔄 Scheduling retry #${consecutiveErrors} in ${delayMs}ms (reason: $reason)")
 
@@ -286,12 +309,53 @@ class ProximityBeaconScanner(
     /**
      * Verifica si el scanner está realmente funcionando
      * (no solo marcado como "scanning" pero sin detecciones)
+     *
+     * @param maxSilenceMs Tiempo máximo sin detecciones para considerar unhealthy
+     * @return Triple(isHealthy, reason, timeSinceLastDetectionMs)
      */
     fun isHealthy(maxSilenceMs: Long = 60000L): Boolean {
         if (!_isScanning.value) return false
 
-        val timeSinceLastDetection = System.currentTimeMillis() - lastDetectionTimestamp
+        val now = System.currentTimeMillis()
+        val timeSinceLastDetection = now - lastDetectionTimestamp
+        val timeSinceScanStart = now - lastScanStartTimestamp
+
+        // Si nunca ha detectado nada (lastDetectionTimestamp == 0)
+        // verificamos cuánto tiempo ha estado escaneando
+        if (lastDetectionTimestamp == 0L) {
+            // Si ha estado escaneando por más de maxSilenceMs sin detectar nada,
+            // podría ser un scanner zombie o simplemente no hay beacons cerca
+            // No lo consideramos unhealthy inmediatamente, pero lo logueamos
+            if (timeSinceScanStart > maxSilenceMs) {
+                Log.d(TAG, "📊 Scanner activo pero sin detecciones aún (${timeSinceScanStart/1000}s desde inicio)")
+            }
+            // Consideramos healthy si ha estado escaneando menos de 5 minutos sin detecciones
+            // Después de 5 minutos, lo consideramos potencialmente unhealthy
+            return timeSinceScanStart < 300_000L
+        }
+
         return timeSinceLastDetection < maxSilenceMs
+    }
+
+    /**
+     * Obtiene información de diagnóstico del scanner
+     */
+    fun getDiagnosticInfo(): String {
+        val now = System.currentTimeMillis()
+        return buildString {
+            appendLine("=== Scanner Diagnostic ===")
+            appendLine("isScanning: ${_isScanning.value}")
+            appendLine("consecutiveErrors: $consecutiveErrors")
+            appendLine("totalDetectionCount: $totalDetectionCount")
+            if (lastDetectionTimestamp > 0) {
+                appendLine("lastDetection: ${(now - lastDetectionTimestamp) / 1000}s ago")
+            } else {
+                appendLine("lastDetection: NEVER")
+            }
+            if (lastScanStartTimestamp > 0) {
+                appendLine("scanStarted: ${(now - lastScanStartTimestamp) / 1000}s ago")
+            }
+        }
     }
 
     /**
@@ -333,6 +397,7 @@ class ProximityBeaconScanner(
 
         // Actualizar timestamp de última detección (cualquier beacon BLE)
         lastDetectionTimestamp = System.currentTimeMillis()
+        totalDetectionCount++
 
         // Verificar si es un iBeacon válido
         val scanRecord = result.scanRecord
