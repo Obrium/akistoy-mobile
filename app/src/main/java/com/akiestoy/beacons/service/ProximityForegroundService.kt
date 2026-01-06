@@ -33,6 +33,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * Servicio en primer plano para escaneo de proximidad BLE
@@ -288,6 +290,43 @@ class ProximityForegroundService : Service() {
 
         // Obtener base de datos y DAO
         database = AppDatabase.getDatabase(this)
+
+        // ===== PRE-CARGA INMEDIATA DE BEACONS =====
+        // Cargar beacons de la BD local SINCRÓNICAMENTE para estar listos al iniciar escaneo
+        // Esto resuelve el problema de timing donde el escaneo iniciaba antes de tener beacons
+        try {
+            runBlocking {
+                val cachedBeacons = database.registeredBeaconDao().getAllActiveBeaconsOnce()
+                if (cachedBeacons.isNotEmpty()) {
+                    registeredBeaconsCache = cachedBeacons
+                    Log.i(TAG, "⚡ Pre-carga inmediata: ${cachedBeacons.size} beacons desde BD local")
+                    cachedBeacons.forEach { beacon ->
+                        Log.d(TAG, "   📍 ${beacon.zoneName} - MAC: ${beacon.mac ?: "N/A"}")
+                    }
+                } else {
+                    Log.w(TAG, "⚠️ No hay beacons en BD local - esperando sincronización")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error en pre-carga de beacons (no crítico)", e)
+        }
+
+        // ===== SINCRONIZACIÓN FORZADA DESDE SERVIDOR =====
+        // Si hay usuario logueado, forzar sincronización de beacons desde el servidor
+        // Esto actualiza la BD y el cache se actualiza automáticamente via observer
+        serviceScope.launch {
+            try {
+                val user = database.userDao().getCurrentUserOnce()
+                if (user != null) {
+                    Log.i(TAG, "👤 Usuario encontrado: ${user.name} - forzando sincronización de beacons...")
+                    forceBeaconSync(user.tenantId, user.companyId)
+                } else {
+                    Log.w(TAG, "⚠️ No hay usuario logueado - esperando login para sincronizar beacons")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error verificando usuario para sincronización", e)
+            }
+        }
         val pendingEventDao = database.pendingEventDao()
 
         // Crear ZoneManager para detección estable de zonas
@@ -610,5 +649,68 @@ class ProximityForegroundService : Service() {
 
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Fuerza la sincronización de beacons desde el servidor
+     * Se ejecuta al iniciar el servicio si hay usuario logueado
+     * Esto asegura que tengamos los beacons más recientes sin esperar al MainActivity
+     */
+    private suspend fun forceBeaconSync(tenantId: String, companyId: String) {
+        try {
+            Log.i(TAG, "🔄 Sincronizando beacons desde servidor...")
+            updateNotification("Sincronizando...", 0)
+
+            val zonesResponse = withContext(Dispatchers.IO) {
+                ApiClient.zonesApi.getZones(tenantId = tenantId, companyId = companyId)
+            }
+
+            if (zonesResponse.isSuccessful && zonesResponse.body() != null) {
+                val zonesData = zonesResponse.body()!!
+                Log.i(TAG, "✅ Se obtuvieron ${zonesData.size} zonas del servidor")
+
+                // Extraer todos los beacons de las zonas
+                val allBeacons = zonesData.flatMap { zoneResponse ->
+                    zoneResponse.beacons.map { beaconResponse ->
+                        com.akiestoy.beacons.model.RegisteredBeacon(
+                            id = beaconResponse.id,
+                            tenantId = beaconResponse.tenantId,
+                            companyId = beaconResponse.companyId,
+                            advUuid = beaconResponse.advUuid.lowercase(),
+                            mac = beaconResponse.mac,
+                            beaconName = beaconResponse.beaconName,
+                            major = beaconResponse.major,
+                            minor = beaconResponse.minor,
+                            txPower = beaconResponse.txPower,
+                            model = beaconResponse.model,
+                            beaconType = beaconResponse.beaconType,
+                            status = beaconResponse.status,
+                            zoneName = beaconResponse.zoneName,
+                            zoneId = beaconResponse.zoneId,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    }
+                }
+
+                // Guardar en BD (el observer actualizará automáticamente el cache)
+                withContext(Dispatchers.IO) {
+                    database.registeredBeaconDao().deleteAll()
+                    database.registeredBeaconDao().insertBeacons(allBeacons)
+                }
+
+                // También actualizar cache directamente para uso inmediato
+                registeredBeaconsCache = allBeacons
+
+                Log.i(TAG, "✅ Sincronización completada: ${allBeacons.size} beacons listos")
+                allBeacons.forEach { beacon ->
+                    Log.d(TAG, "   📍 ${beacon.zoneName} - MAC: ${beacon.mac ?: "N/A"}")
+                }
+            } else {
+                Log.e(TAG, "❌ Error al sincronizar beacons: ${zonesResponse.code()}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error en sincronización de beacons (continuando con cache local)", e)
+        }
     }
 }

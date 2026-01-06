@@ -67,6 +67,10 @@ class ProximityBeaconScanner(
     private var consecutiveErrors = 0
     private var lastErrorTimestamp = 0L
 
+    // Control de modo de escaneo agresivo inicial
+    private var isAggressiveMode = false
+    private var aggressiveModeJob: Job? = null
+
     companion object {
         // UUID de los beacons iBeacon (formato Apple)
         private const val IBEACON_UUID = "e2c56db5-dffb-48d2-b060-d0f5a71096e0"
@@ -78,14 +82,21 @@ class ProximityBeaconScanner(
         private const val INITIAL_RETRY_DELAY_MS = 2000L
         private const val MAX_RETRY_DELAY_MS = 30000L
         private const val ERROR_RESET_WINDOW_MS = 60000L // Reset error count después de 1 min sin errores
+
+        // Duración del modo agresivo inicial (30 segundos)
+        private const val AGGRESSIVE_MODE_DURATION_MS = 30000L
     }
 
     /**
-     * Inicia el escaneo BLE en modo BALANCED
-     * Incluye auto-recovery si el scan falla
+     * Inicia el escaneo BLE con modo agresivo inicial (LOW_LATENCY) por 30 segundos
+     * y luego cambia automáticamente a modo BALANCED para ahorrar batería.
+     * Incluye auto-recovery si el scan falla.
+     *
+     * @param scope CoroutineScope para manejar las coroutines
+     * @param startAggressive Si es true, inicia en modo LOW_LATENCY por 30 segundos
      */
     @SuppressLint("MissingPermission")
-    fun startScanning(scope: CoroutineScope) {
+    fun startScanning(scope: CoroutineScope, startAggressive: Boolean = true) {
         currentScope = scope
 
         if (_isScanning.value) {
@@ -108,17 +119,38 @@ class ProximityBeaconScanner(
             return
         }
 
-        Log.i(TAG, "🔍 Starting BLE scanning in BALANCED mode...")
+        // Determinar modo de escaneo
+        isAggressiveMode = startAggressive
+        val scanMode = if (startAggressive) {
+            ScanSettings.SCAN_MODE_LOW_LATENCY  // Modo agresivo - detección más rápida
+        } else {
+            ScanSettings.SCAN_MODE_BALANCED     // Modo normal - ahorra batería
+        }
+
+        val modeName = if (startAggressive) "LOW_LATENCY (agresivo)" else "BALANCED"
+        Log.i(TAG, "🔍 Starting BLE scanning in $modeName mode...")
         Log.d(TAG, "📍 Looking for iBeacon UUID: $IBEACON_UUID")
 
-        // Configurar ScanSettings para BALANCED (balance entre batería y rendimiento)
+        // Configurar ScanSettings según el modo
         val scanSettings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)  // Escaneo balanceado - ahorra ~60% batería
+            .setScanMode(scanMode)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
             .setReportDelay(0L)  // Reportar inmediatamente
             .build()
+
+        // Si iniciamos en modo agresivo, programar cambio a BALANCED después de 30 segundos
+        if (startAggressive) {
+            aggressiveModeJob?.cancel()
+            aggressiveModeJob = scope.launch {
+                delay(AGGRESSIVE_MODE_DURATION_MS)
+                if (isAggressiveMode && _isScanning.value) {
+                    Log.i(TAG, "⏰ Modo agresivo completado - cambiando a BALANCED para ahorrar batería")
+                    switchToBalancedMode()
+                }
+            }
+        }
 
         // Configurar filtros para detectar solo nuestros beacons
         val scanFilters = buildScanFilters()
@@ -269,7 +301,30 @@ class ProximityBeaconScanner(
         currentScope?.let { scope ->
             scope.launch {
                 delay(1000) // Dar tiempo al sistema para limpiar
-                startScanning(scope)
+                startScanning(scope, startAggressive = false) // Reiniciar en modo normal
+            }
+        }
+    }
+
+    /**
+     * Cambia el escaneo de modo agresivo a modo BALANCED
+     * Se llama automáticamente después de 30 segundos de escaneo agresivo
+     */
+    @SuppressLint("MissingPermission")
+    private fun switchToBalancedMode() {
+        if (!_isScanning.value) {
+            Log.w(TAG, "⚠️ No hay escaneo activo para cambiar de modo")
+            return
+        }
+
+        isAggressiveMode = false
+
+        // Detener escaneo actual y reiniciar en modo BALANCED
+        currentScope?.let { scope ->
+            scope.launch {
+                stopScanning()
+                delay(500) // Pequeña pausa para limpiar
+                startScanning(scope, startAggressive = false)
             }
         }
     }
@@ -284,6 +339,10 @@ class ProximityBeaconScanner(
         // Cancelar retry pendiente
         retryJob?.cancel()
         retryJob = null
+
+        // Cancelar job del modo agresivo
+        aggressiveModeJob?.cancel()
+        aggressiveModeJob = null
 
         if (!_isScanning.value) {
             Log.w(TAG, "⚠️ Scanning is not active")
