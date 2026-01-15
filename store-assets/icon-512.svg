@@ -1,0 +1,26 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4F46E5"/>
+      <stop offset="100%" style="stop-color:#7C3AED"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo redondeado -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+
+  <!-- Ondas de señal (beacon) -->
+  <g fill="none" stroke="white" stroke-width="16" stroke-linecap="round" opacity="0.6">
+    <path d="M 180 180 A 107 107 0 0 1 332 180" />
+    <path d="M 140 140 A 164 164 0 0 1 372 140" />
+    <path d="M 100 100 A 220 220 0 0 1 412 100" />
+  </g>
+
+  <!-- Punto central (beacon) -->
+  <circle cx="256" cy="300" r="80" fill="white"/>
+  <circle cx="256" cy="300" r="50" fill="url(#bg)"/>
+  <circle cx="256" cy="300" r="25" fill="white"/>
+
+  <!-- Texto "A" estilizado -->
+  <text x="256" y="420" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="white" text-anchor="middle">AkisToy</text>
+</svg>

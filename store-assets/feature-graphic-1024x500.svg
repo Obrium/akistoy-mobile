@@ -1,0 +1,44 @@
+<svg width="1024" height="500" viewBox="0 0 1024 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgFeature" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4F46E5"/>
+      <stop offset="100%" style="stop-color:#7C3AED"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Fondo -->
+  <rect width="1024" height="500" fill="url(#bgFeature)"/>
+
+  <!-- Ondas decorativas izquierda -->
+  <g fill="none" stroke="white" stroke-width="8" stroke-linecap="round" opacity="0.2">
+    <circle cx="150" cy="250" r="60"/>
+    <circle cx="150" cy="250" r="100"/>
+    <circle cx="150" cy="250" r="140"/>
+  </g>
+
+  <!-- Ondas decorativas derecha -->
+  <g fill="none" stroke="white" stroke-width="8" stroke-linecap="round" opacity="0.2">
+    <circle cx="874" cy="250" r="60"/>
+    <circle cx="874" cy="250" r="100"/>
+    <circle cx="874" cy="250" r="140"/>
+  </g>
+
+  <!-- Icono central pequeño -->
+  <g transform="translate(362, 100)">
+    <circle cx="50" cy="50" r="40" fill="white" opacity="0.9"/>
+    <circle cx="50" cy="50" r="25" fill="#4F46E5"/>
+    <circle cx="50" cy="50" r="12" fill="white"/>
+  </g>
+
+  <!-- Texto principal -->
+  <text x="512" y="280" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle">AkisToy</text>
+
+  <!-- Subtítulo -->
+  <text x="512" y="340" font-family="Arial, sans-serif" font-size="28" fill="white" text-anchor="middle" opacity="0.9">Rastreo de proximidad con beacons</text>
+
+  <!-- Línea decorativa -->
+  <rect x="412" y="360" width="200" height="4" rx="2" fill="white" opacity="0.5"/>
+
+  <!-- Texto inferior -->
+  <text x="512" y="420" font-family="Arial, sans-serif" font-size="20" fill="white" text-anchor="middle" opacity="0.7">by Obrium</text>
+</svg>

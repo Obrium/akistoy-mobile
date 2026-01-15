@@ -16,10 +16,12 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.akiestoy.beacons.MainActivity
 import com.akiestoy.beacons.R
+import com.akiestoy.beacons.BuildConfig
 import com.akiestoy.beacons.api.ApiClient
 import com.akiestoy.beacons.data.AppDatabase
 import com.akiestoy.beacons.data.FavoritesRepository
 import com.akiestoy.beacons.model.RegisteredBeacon
+import com.akiestoy.beacons.model.tracking.HeartbeatRequest
 import com.akiestoy.beacons.proximity.ProximityBeaconScanner
 import com.akiestoy.beacons.state.ZoneInfo
 import com.akiestoy.beacons.tracking.BeaconTrackingService
@@ -54,6 +56,15 @@ class ProximityForegroundService : Service() {
 
     // Cache de beacons registrados (actualizado periódicamente)
     private var registeredBeaconsCache: List<RegisteredBeacon> = emptyList()
+
+    // Datos del usuario para heartbeat
+    private var currentDeviceId: String = ""
+    private var currentTenantId: String = ""
+    private var currentEmployeeRut: String? = null
+    private var currentEmployeeName: String? = null
+
+    // Intervalo de heartbeat (5 minutos)
+    private val HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000L
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -275,12 +286,13 @@ class ProximityForegroundService : Service() {
      */
     @SuppressLint("HardwareIds")
     private fun initializeComponents() {
-        // Obtener device ID
+        // Obtener device ID y guardarlo para heartbeat
         val deviceId = try {
             Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         } catch (e: Exception) {
             "unknown-device"
         }
+        currentDeviceId = deviceId
 
         // Obtener device name
         val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
@@ -357,15 +369,23 @@ class ProximityForegroundService : Service() {
             pendingZoneEventDao = pendingZoneEventDao
         )
 
-        // Observar cambios en el usuario logueado y actualizar ZoneEventService
+        // Observar cambios en el usuario logueado y actualizar ZoneEventService + datos para heartbeat
         // Esto permite que el servicio se actualice si el usuario hace login después de que el servicio inicie
         serviceScope.launch {
             database.userDao().getCurrentUser().collect { user ->
                 if (user != null) {
+                    // Actualizar ZoneEventService
                     zoneEventService.setUser(user.rut, user.name)
-                    Log.i(TAG, "👤 Usuario actualizado en ZoneEventService: ${user.name} (RUT: ${user.rut})")
+                    // Guardar datos para heartbeat
+                    currentTenantId = user.tenantId
+                    currentEmployeeRut = user.rut
+                    currentEmployeeName = user.name
+                    Log.i(TAG, "👤 Usuario actualizado: ${user.name} (RUT: ${user.rut}, Tenant: ${user.tenantId})")
                 } else {
                     zoneEventService.setUser(null, null)
+                    currentTenantId = ""
+                    currentEmployeeRut = null
+                    currentEmployeeName = null
                     Log.w(TAG, "⚠️ No hay usuario logueado - eventos se enviarán sin identificación")
                 }
             }
@@ -498,10 +518,58 @@ class ProximityForegroundService : Service() {
             // Iniciar watchdog que verifica la salud del scanner
             startScannerWatchdog()
 
+            // Iniciar envío periódico de heartbeat (cada 5 minutos)
+            startHeartbeat()
+
             updateNotification("Escaneando...", 0)
             Log.i(TAG, "🔍 Proximity scanning started with OPTIMIZED events (ZoneEventService)")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error starting proximity scanning", e)
+        }
+    }
+
+    /**
+     * Inicia el envío periódico de heartbeat al backend
+     * Se envía cada 5 minutos para indicar que la app está activa
+     * El backend usa esto para detectar usuarios sin actividad en horario laboral
+     */
+    private fun startHeartbeat() {
+        serviceScope.launch {
+            // Esperar 30 segundos antes del primer heartbeat para que se carguen los datos del usuario
+            kotlinx.coroutines.delay(30000)
+
+            while (true) {
+                try {
+                    // Solo enviar si tenemos tenantId (usuario logueado)
+                    if (currentTenantId.isNotEmpty()) {
+                        val request = HeartbeatRequest(
+                            deviceId = currentDeviceId,
+                            timestamp = System.currentTimeMillis(),
+                            tenantId = currentTenantId,
+                            employeeRut = currentEmployeeRut,
+                            employeeName = currentEmployeeName,
+                            appVersion = BuildConfig.VERSION_NAME
+                        )
+
+                        val response = withContext(Dispatchers.IO) {
+                            ApiClient.proximityApi.sendHeartbeat(request)
+                        }
+
+                        if (response.isSuccessful) {
+                            Log.d(TAG, "💓 Heartbeat enviado OK (${currentEmployeeName})")
+                        } else {
+                            Log.w(TAG, "⚠️ Heartbeat falló: ${response.code()}")
+                        }
+                    } else {
+                        Log.d(TAG, "💓 Heartbeat omitido - no hay usuario logueado")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error enviando heartbeat (no crítico)", e)
+                }
+
+                // Esperar 5 minutos antes del siguiente heartbeat
+                kotlinx.coroutines.delay(HEARTBEAT_INTERVAL_MS)
+            }
         }
     }
 

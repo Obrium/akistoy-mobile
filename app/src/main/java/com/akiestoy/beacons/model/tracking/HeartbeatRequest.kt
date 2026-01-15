@@ -4,6 +4,7 @@ import com.google.gson.annotations.SerializedName
 
 /**
  * Request para enviar heartbeat al backend
+ * Se envía cada 5 minutos para indicar que la app está activa
  */
 data class HeartbeatRequest(
     @SerializedName("deviceId")
@@ -13,7 +14,16 @@ data class HeartbeatRequest(
     val timestamp: Long,
 
     @SerializedName("tenantId")
-    val tenantId: String
+    val tenantId: String,
+
+    @SerializedName("employeeRut")
+    val employeeRut: String? = null,
+
+    @SerializedName("employeeName")
+    val employeeName: String? = null,
+
+    @SerializedName("appVersion")
+    val appVersion: String? = null
 )
 
 /**
