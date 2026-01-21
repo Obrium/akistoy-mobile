@@ -1,10 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Akistoy Brand Colors -->
+    <!-- Primary - Cyan/Teal -->
+    <color name="primary_50">#FFECFEFF</color>
+    <color name="primary_100">#FFCFFAFE</color>
+    <color name="primary_200">#FFA5F3FC</color>
+    <color name="primary_300">#FF67E8F9</color>
+    <color name="primary_400">#FF22D3EE</color>
+    <color name="primary_500">#FF06B6D4</color>
+    <color name="primary_600">#FF0891B2</color>
+    <color name="primary_700">#FF0E7490</color>
+    <color name="primary_800">#FF155E75</color>
+    <color name="primary_900">#FF164E63</color>
+
+    <!-- Secondary - Blue/Navy -->
+    <color name="secondary_50">#FFEFF6FF</color>
+    <color name="secondary_100">#FFDBEAFE</color>
+    <color name="secondary_200">#FFBFDBFE</color>
+    <color name="secondary_300">#FF93C5FD</color>
+    <color name="secondary_400">#FF60A5FA</color>
+    <color name="secondary_500">#FF3B82F6</color>
+    <color name="secondary_600">#FF2563EB</color>
+    <color name="secondary_700">#FF1D4ED8</color>
+    <color name="secondary_800">#FF1E40AF</color>
+    <color name="secondary_900">#FF1E3A8A</color>
+
+    <!-- Legacy colors for compatibility -->
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>
     <color name="teal_200">#FF03DAC5</color>
     <color name="teal_700">#FF018786</color>
+
+    <!-- Neutral -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="neutral_800">#FF1E293B</color>
+    <color name="neutral_900">#FF0F172A</color>
+
+    <!-- App specific colors -->
+    <color name="ic_launcher_background">#FF06B6D4</color>
 </resources>
