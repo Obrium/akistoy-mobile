@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
@@ -7,13 +8,25 @@
 
     <!-- Pin Location Icon - centered in adaptive icon safe zone -->
     <path
-        android:pathData="M54,24 C42.954,24 34,32.954 34,44 C34,58 54,78 54,78 C54,78 74,58 74,44 C74,32.954 65.046,24 54,24 Z"
-        android:fillColor="#06B6D4"/>
+        android:pathData="M54,22 C41.85,22 32,31.85 32,44 C32,59.5 54,82 54,82 C54,82 76,59.5 76,44 C76,31.85 66.15,22 54,22 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="22"
+                android:endX="54"
+                android:endY="82">
+                <item android:offset="0.0" android:color="#FF22D3EE"/>
+                <item android:offset="0.5" android:color="#FF06B6D4"/>
+                <item android:offset="1.0" android:color="#FF0891B2"/>
+            </gradient>
+        </aapt:attr>
+    </path>
 
     <!-- Checkmark -->
     <path
-        android:pathData="M45,45 L50.5,50.5 L63,38"
-        android:strokeWidth="4"
+        android:pathData="M43,46 L50,53 L65,38"
+        android:strokeWidth="5"
         android:strokeColor="#FFFFFF"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
