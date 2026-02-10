@@ -39,8 +39,8 @@ class ZoneManager {
         const val HYSTERESIS_DB = 6
 
         // Detecciones consecutivas para confirmar cambio de zona
-        // 2 detecciones = ~6 segundos con beacons de 3s
-        const val ZONE_CHANGE_CONSECUTIVE_COUNT = 2
+        // 1 detección = respuesta inmediata al pasar
+        const val ZONE_CHANGE_CONSECUTIVE_COUNT = 1
 
         // Tiempo sin señal de ningún beacon para considerar OUTSIDE (ms)
         // Debe ser > que el timeout total de BeaconTrackingService

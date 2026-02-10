@@ -587,23 +587,46 @@ private fun calculateConnectionState(
         return ConnectionState(isActive = false)
     }
 
-    // Actualizar RSSI suavizado SOLO para beacons que tienen MAC registrada
+    // Actualizar RSSI suavizado para beacons que coinciden con los registrados
+    // PRIORIDAD: 1) Match por MAC, 2) Match por UUID + major + minor
     for (beacon in favoriteBeacons) {
         val mac = beacon.macAddress
-        if (mac.isEmpty()) continue
+        val iBeaconData = beacon.iBeaconData
 
-        // Buscar zona registrada por MAC (SOLO procesar si hay match)
-        val registered = registeredBeacons.find { reg ->
-            !reg.mac.isNullOrEmpty() && reg.mac.equals(mac, ignoreCase = true)
+        // Buscar beacon registrado usando prioridad: MAC > UUID+major+minor
+        var registered: RegisteredBeacon? = null
+
+        // PRIORIDAD 1: Match por MAC address (más confiable)
+        if (mac.isNotEmpty()) {
+            registered = registeredBeacons.find { reg ->
+                !reg.mac.isNullOrEmpty() && reg.mac.equals(mac, ignoreCase = true)
+            }
         }
 
-        // Si no hay beacon registrado con esta MAC, ignorar (evita "iBeacon" genéricos)
+        // PRIORIDAD 2: Match por UUID + major + minor (fallback)
+        if (registered == null && iBeaconData != null) {
+            registered = registeredBeacons.find { reg ->
+                reg.advUuid.equals(iBeaconData.uuid, ignoreCase = true) &&
+                reg.major == iBeaconData.major &&
+                reg.minor == iBeaconData.minor
+            }
+        }
+
+        // Si no hay beacon registrado, ignorar (evita "iBeacon" genéricos)
         if (registered == null) continue
 
         val zoneName = registered.zoneName
+        // Usar MAC detectada o la registrada como fallback
+        // Si no hay MAC, usar un identificador único basado en UUID+major+minor
+        val beaconKey = when {
+            mac.isNotEmpty() -> mac
+            !registered.mac.isNullOrEmpty() -> registered.mac
+            iBeaconData != null -> "${iBeaconData.uuid}_${iBeaconData.major}_${iBeaconData.minor}"
+            else -> continue // No hay forma de identificar el beacon
+        }
 
-        val state = smoothedBeaconStates.getOrPut(mac) {
-            SmoothedBeaconState(mac = mac, zoneName = zoneName)
+        val state = smoothedBeaconStates.getOrPut(beaconKey) {
+            SmoothedBeaconState(mac = beaconKey, zoneName = zoneName)
         }
         // Actualizar zoneName en caso de que haya cambiado en el servidor
         if (state.zoneName != zoneName) {

@@ -39,11 +39,11 @@ data class ProximityConfig(
 ) {
     companion object {
         // Valores por defecto
-        const val DEFAULT_ENTER_THRESHOLD = -65
-        const val DEFAULT_EXIT_THRESHOLD = -70
+        const val DEFAULT_ENTER_THRESHOLD = -75  // Menos estricto para detección más rápida
+        const val DEFAULT_EXIT_THRESHOLD = -80   // Ajustado proporcionalmente
         const val DEFAULT_EXIT_TIMEOUT_MS = 10_000L  // 10 segundos
         const val DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000L  // 5 segundos
-        const val DEFAULT_MOVING_AVERAGE_WINDOW = 5
+        const val DEFAULT_MOVING_AVERAGE_WINDOW = 3  // Reducido para respuesta más rápida
 
         /**
          * Configuración por defecto para cualquier beacon
