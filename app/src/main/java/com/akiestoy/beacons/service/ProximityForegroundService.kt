@@ -131,7 +131,7 @@ class ProximityForegroundService : Service() {
                 val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
                 wakeLock = powerManager.newWakeLock(
                     PowerManager.PARTIAL_WAKE_LOCK,
-                    "AkiEstoy::BeaconScanningWakeLock"
+                    "Akistoy::BeaconScanningWakeLock"
                 ).apply {
                     acquire()
                     Log.i(TAG, "🔋 Wake Lock adquirido - el CPU se mantendrá activo")
@@ -323,22 +323,51 @@ class ProximityForegroundService : Service() {
             Log.e(TAG, "❌ Error en pre-carga de beacons (no crítico)", e)
         }
 
+        // ===== PRE-CARGA INMEDIATA DE USUARIO =====
+        // Cargar datos del usuario SINCRÓNICAMENTE para que ZoneEventService
+        // tenga el RUT desde el primer momento. Sin esto, si un beacon se detecta
+        // antes de que el usuario cargue asincrónicamente, el evento COMPANY_ENTRY
+        // se descarta porque userRut es null (bug: "la app no conecta a la primera")
+        var initialUserRut: String? = null
+        var initialUserName: String? = null
+        var initialTenantId: String = ""
+        var initialCompanyId: String = ""
+        try {
+            runBlocking {
+                val user = database.userDao().getCurrentUserOnce()
+                if (user != null) {
+                    initialUserRut = user.rut
+                    initialUserName = user.name
+                    initialTenantId = user.tenantId
+                    initialCompanyId = user.companyId
+                    currentTenantId = user.tenantId
+                    currentEmployeeRut = user.rut
+                    currentEmployeeName = user.name
+                    Log.i(TAG, "⚡ Pre-carga de usuario: ${user.name} (RUT: ${user.rut}, Tenant: ${user.tenantId})")
+                } else {
+                    Log.w(TAG, "⚠️ No hay usuario logueado en BD local")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error en pre-carga de usuario (no crítico)", e)
+        }
+
         // ===== SINCRONIZACIÓN FORZADA DESDE SERVIDOR =====
         // Si hay usuario logueado, forzar sincronización de beacons desde el servidor
         // Esto actualiza la BD y el cache se actualiza automáticamente via observer
-        serviceScope.launch {
-            try {
-                val user = database.userDao().getCurrentUserOnce()
-                if (user != null) {
-                    Log.i(TAG, "👤 Usuario encontrado: ${user.name} - forzando sincronización de beacons...")
-                    forceBeaconSync(user.tenantId, user.companyId)
-                } else {
-                    Log.w(TAG, "⚠️ No hay usuario logueado - esperando login para sincronizar beacons")
+        if (initialTenantId.isNotEmpty()) {
+            serviceScope.launch {
+                try {
+                    Log.i(TAG, "👤 Usuario encontrado: $initialUserName - forzando sincronización de beacons...")
+                    forceBeaconSync(initialTenantId, initialCompanyId)
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error sincronizando beacons desde servidor", e)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error verificando usuario para sincronización", e)
             }
+        } else {
+            Log.w(TAG, "⚠️ No hay usuario logueado - esperando login para sincronizar beacons")
         }
+
         val pendingEventDao = database.pendingEventDao()
 
         // Crear ZoneManager para detección estable de zonas
@@ -362,11 +391,14 @@ class ProximityForegroundService : Service() {
         // Este servicio REEMPLAZA el envío de beacon-readings continuos
         // y solo envía COMPANY_ENTRY, COMPANY_EXIT, ZONE_CHANGE
         // Incluye cola offline para cuando no hay conexión a internet
+        // IMPORTANTE: Pasar userRut/userName ya cargados para que el primer evento no se descarte
         val pendingZoneEventDao = database.pendingZoneEventDao()
         zoneEventService = ZoneEventService(
             api = ApiClient.proximityApi,
             deviceId = deviceId,
-            pendingZoneEventDao = pendingZoneEventDao
+            pendingZoneEventDao = pendingZoneEventDao,
+            userRut = initialUserRut,
+            userName = initialUserName
         )
 
         // Observar cambios en el usuario logueado y actualizar ZoneEventService + datos para heartbeat
@@ -380,7 +412,7 @@ class ProximityForegroundService : Service() {
                     currentTenantId = user.tenantId
                     currentEmployeeRut = user.rut
                     currentEmployeeName = user.name
-                    Log.i(TAG, "👤 Usuario actualizado: ${user.name} (RUT: ${user.rut}, Tenant: ${user.tenantId})")
+                    Log.i(TAG, "👤 Usuario actualizado (async): ${user.name} (RUT: ${user.rut}, Tenant: ${user.tenantId})")
                 } else {
                     zoneEventService.setUser(null, null)
                     currentTenantId = ""
@@ -695,7 +727,7 @@ class ProximityForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("AkiEstoy - Escaneo Activo")
+            .setContentTitle("Akistoy - Escaneo Activo")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)

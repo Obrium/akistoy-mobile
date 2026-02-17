@@ -83,7 +83,7 @@ class BeaconForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("AkiEstoy")
+            .setContentTitle("Akistoy")
             .setContentText("Escaneando beacons en segundo plano")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)

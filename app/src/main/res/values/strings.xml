@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AkiEstoy</string>
+    <string name="app_name">Akistoy</string>
     <string name="scanning">Escaneando beacons...</string>
     <string name="idle">Listo para escanear</string>
     <string name="start_scanning">Iniciar Escaneo</string>
