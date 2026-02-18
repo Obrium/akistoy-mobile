@@ -53,6 +53,12 @@ class MainActivity : ComponentActivity() {
 
     private var hasPermissions by mutableStateOf(false)
 
+    // Registro de permiso de background location (debe solicitarse por separado en Android 10+)
+    private val backgroundLocationLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                android.util.Log.i("MainActivity", "ACCESS_BACKGROUND_LOCATION granted: $granted")
+            }
+
     // Registro de permisos
     private val permissionLauncher =
             registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -64,14 +70,16 @@ class MainActivity : ComponentActivity() {
 
                 val allGranted = permissions.values.all { it }
                 hasPermissions = allGranted
-                android.util.Log.i("MainActivity", "🔐 All permissions granted: $allGranted")
+                android.util.Log.i("MainActivity", "All permissions granted: $allGranted")
 
                 // Iniciar servicio en segundo plano si se otorgaron los permisos
                 if (allGranted) {
-                    android.util.Log.i("MainActivity", "✅ Starting background service from permission callback...")
+                    android.util.Log.i("MainActivity", "Starting background service from permission callback...")
+                    // Solicitar ACCESS_BACKGROUND_LOCATION por separado (Android 10+ lo requiere)
+                    requestBackgroundLocationPermission()
                     startBackgroundService()
                 } else {
-                    android.util.Log.w("MainActivity", "❌ Not all permissions granted, service not started")
+                    android.util.Log.w("MainActivity", "Not all permissions granted, service not started")
                 }
             }
 
@@ -232,11 +240,36 @@ class MainActivity : ComponentActivity() {
         permissionLauncher.launch(getRequiredPermissions())
     }
 
+    /**
+     * Solicita ACCESS_BACKGROUND_LOCATION por separado.
+     * Android 10+ requiere que se pida después de ACCESS_FINE_LOCATION.
+     */
+    private fun requestBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val hasBgLocation = checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!hasBgLocation) {
+                android.util.Log.i("MainActivity", "Requesting ACCESS_BACKGROUND_LOCATION")
+                backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
+        }
+    }
+
     /** Obtiene la lista de permisos necesarios según la versión de Android */
     private fun getRequiredPermissions(): Array<String> {
         return when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
+                // Android 13+ (API 33+)
+                arrayOf(
+                        Manifest.permission.BLUETOOTH_SCAN,
+                        Manifest.permission.BLUETOOTH_CONNECT,
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                        Manifest.permission.POST_NOTIFICATIONS
+                )
+            }
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                // Android 12+ (API 31+)
+                // Android 12 (API 31-32)
                 arrayOf(
                         Manifest.permission.BLUETOOTH_SCAN,
                         Manifest.permission.BLUETOOTH_CONNECT,

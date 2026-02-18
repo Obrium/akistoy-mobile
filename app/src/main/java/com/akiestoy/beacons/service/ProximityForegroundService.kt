@@ -1,6 +1,7 @@
 package com.akiestoy.beacons.service
 
 import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -11,6 +12,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -28,8 +30,6 @@ import com.akiestoy.beacons.tracking.BeaconTrackingService
 import com.akiestoy.beacons.tracking.EventBatcher
 import com.akiestoy.beacons.tracking.ZoneEventService
 import com.akiestoy.beacons.tracking.ZoneManager
-import android.os.Handler
-import android.os.Looper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,7 +69,8 @@ class ProximityForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     companion object {
-        private const val CHANNEL_ID = "ProximityServiceChannel"
+        private const val CHANNEL_ID = "ProximityServiceSilent"
+        private const val OLD_CHANNEL_ID = "ProximityServiceChannel"
         private const val NOTIFICATION_ID = 1002
         private const val RESTART_DEBOUNCE_MS = 5000L  // 5 segundos entre reinicios
 
@@ -80,6 +81,12 @@ class ProximityForegroundService : Service() {
         private var lastRestartAttemptTimestamp = 0L
 
         fun startService(context: Context) {
+            // Verificar permisos de ubicación antes de iniciar (requerido para foregroundServiceType=location)
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                Log.w("ProximityForegroundService", "Location permission not granted, skipping service start")
+                return
+            }
             val intent = Intent(context, ProximityForegroundService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -119,37 +126,42 @@ class ProximityForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
-        Log.i(TAG, "🚀 ProximityForegroundService created")
+        Log.i(TAG, "ProximityForegroundService created")
 
         try {
             // Crear canal y notificación PRIMERO (requerido para foreground service)
             createNotificationChannel()
             startForeground(NOTIFICATION_ID, createNotification("Inicializando..."))
+        } catch (e: SecurityException) {
+            // Permisos insuficientes para foreground service con tipo location
+            Log.e(TAG, "SecurityException en startForeground - permisos insuficientes", e)
+            isRunning = false
+            stopSelf()
+            return
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en startForeground", e)
+            isRunning = false
+            stopSelf()
+            return
+        }
 
+        try {
             // Adquirir Wake Lock para mantener el CPU activo con pantalla bloqueada
-            try {
-                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-                wakeLock = powerManager.newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK,
-                    "Akistoy::BeaconScanningWakeLock"
-                ).apply {
-                    acquire()
-                    Log.i(TAG, "🔋 Wake Lock adquirido - el CPU se mantendrá activo")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "⚠️ Error adquiriendo Wake Lock (no crítico)", e)
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "Akistoy::BeaconScanningWakeLock"
+            ).apply {
+                acquire(10 * 60 * 1000L)
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adquiriendo Wake Lock (no critico)", e)
+        }
 
-            // Inicializar componentes
+        try {
             initializeComponents()
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error crítico en onCreate", e)
-            // Intentar mostrar al menos la notificación para evitar crash
-            try {
-                updateNotification("Error de inicialización", 0)
-            } catch (e2: Exception) {
-                Log.e(TAG, "❌ No se pudo actualizar notificación", e2)
-            }
+            Log.e(TAG, "Error inicializando componentes", e)
         }
     }
 
@@ -177,14 +189,34 @@ class ProximityForegroundService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        Log.w(TAG, "⚠️ Task removed - scheduling service restart")
-
-        // Enviar broadcast para reiniciar el servicio
-        val restartServiceIntent = Intent("com.akiestoy.beacons.RESTART_SERVICE")
-        restartServiceIntent.setPackage(packageName)
-        sendBroadcast(restartServiceIntent)
-
+        Log.w(TAG, "Task removed - scheduling service restart via AlarmManager")
+        scheduleRestartAlarm()
         super.onTaskRemoved(rootIntent)
+    }
+
+    /**
+     * Programa un AlarmManager para reiniciar el servicio.
+     * A diferencia de Handler.postDelayed o broadcasts internos,
+     * AlarmManager sobrevive la muerte del proceso.
+     */
+    private fun scheduleRestartAlarm() {
+        try {
+            val restartIntent = Intent(this, com.akiestoy.beacons.receiver.ServiceRestartReceiver::class.java)
+            restartIntent.action = "com.akiestoy.beacons.RESTART_SERVICE"
+            val pendingIntent = PendingIntent.getBroadcast(
+                this, 0, restartIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            alarmManager.setAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + 3000, // 3 segundos
+                pendingIntent
+            )
+            Log.i(TAG, "Restart alarm scheduled (3s)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error scheduling restart alarm", e)
+        }
     }
 
     override fun onDestroy() {
@@ -254,28 +286,16 @@ class ProximityForegroundService : Service() {
             Log.e(TAG, "Error getting final state info", e)
         }
 
-        // Enviar broadcast para reiniciar el servicio si fue detenido inesperadamente
-        // DEBOUNCE: Prevenir loop infinito de restart → crash → restart
+        // Programar reinicio via AlarmManager (sobrevive muerte del proceso)
+        // DEBOUNCE: Prevenir loop infinito de restart -> crash -> restart
         val now = System.currentTimeMillis()
         val timeSinceLastRestart = now - lastRestartAttemptTimestamp
 
         if (timeSinceLastRestart > RESTART_DEBOUNCE_MS) {
             lastRestartAttemptTimestamp = now
-
-            // Usar Handler para agregar delay antes del restart
-            // Esto da tiempo al sistema para limpiar recursos
-            Handler(Looper.getMainLooper()).postDelayed({
-                try {
-                    val restartServiceIntent = Intent("com.akiestoy.beacons.RESTART_SERVICE")
-                    restartServiceIntent.setPackage(packageName)
-                    sendBroadcast(restartServiceIntent)
-                    Log.i(TAG, "📡 Restart broadcast sent (debounced)")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error sending restart broadcast", e)
-                }
-            }, 3000)  // 3 segundos de delay antes de intentar reiniciar
+            scheduleRestartAlarm()
         } else {
-            Log.w(TAG, "⚠️ Restart broadcast skipped (debounce: ${timeSinceLastRestart}ms < ${RESTART_DEBOUNCE_MS}ms)")
+            Log.w(TAG, "Restart skipped (debounce: ${timeSinceLastRestart}ms < ${RESTART_DEBOUNCE_MS}ms)")
         }
 
         super.onDestroy()
@@ -588,9 +608,17 @@ class ProximityForegroundService : Service() {
                         }
 
                         if (response.isSuccessful) {
-                            Log.d(TAG, "💓 Heartbeat enviado OK (${currentEmployeeName})")
+                            Log.d(TAG, "Heartbeat enviado OK (${currentEmployeeName})")
                         } else {
-                            Log.w(TAG, "⚠️ Heartbeat falló: ${response.code()}")
+                            Log.w(TAG, "Heartbeat fallo: ${response.code()}")
+                        }
+
+                        // Re-adquirir WakeLock periódicamente para evitar que expire
+                        wakeLock?.let {
+                            if (!it.isHeld) {
+                                it.acquire(10 * 60 * 1000L)
+                                Log.d(TAG, "WakeLock re-adquirido")
+                            }
                         }
                     } else {
                         Log.d(TAG, "💓 Heartbeat omitido - no hay usuario logueado")
@@ -699,17 +727,22 @@ class ProximityForegroundService : Service() {
      */
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            // Borrar canal viejo que tenía IMPORTANCE_DEFAULT (vibraba)
+            notificationManager.deleteNotificationChannel(OLD_CHANNEL_ID)
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Servicio de Proximidad",
-                NotificationManager.IMPORTANCE_DEFAULT  // Cambiado a DEFAULT para que sea más visible
+                NotificationManager.IMPORTANCE_LOW  // LOW = sin sonido ni vibración
             ).apply {
-                description = "Notificaciones del servicio de proximidad BLE - mantiene el escaneo activo en segundo plano"
-                setShowBadge(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                description = "Mantiene el escaneo de beacons activo en segundo plano"
+                setShowBadge(false)
+                enableVibration(false)
+                setSound(null, null)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
 
-            val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -727,16 +760,17 @@ class ProximityForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Akistoy - Escaneo Activo")
+            .setContentTitle("Akistoy")
             .setContentText(status)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)
-            .setOngoing(true)  // No se puede deslizar para cerrar
-            .setAutoCancel(false)  // No se cierra automáticamente
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)  // Prioridad normal para que sea visible
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)  // Categoría de servicio
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)  // Visible en lockscreen
-            .setShowWhen(true)  // Mostrar cuándo se inició
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setSilent(true)  // Sin sonido ni vibración en updates
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setShowWhen(false)
             .build()
     }
 

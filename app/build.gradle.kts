@@ -35,8 +35,8 @@ android {
         applicationId = "com.akiestoy.beacons"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.0.13"
+        versionCode = 14
+        versionName = "1.0.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -117,6 +117,9 @@ dependencies {
 
     // Permissions
     implementation("com.google.accompanist:accompanist-permissions:0.36.0")
+
+    // WorkManager - para watchdog periódico del servicio
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // Room Database
     val roomVersion = "2.6.1"
