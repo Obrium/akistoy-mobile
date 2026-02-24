@@ -131,7 +131,7 @@ class ProximityForegroundService : Service() {
         try {
             // Crear canal y notificación PRIMERO (requerido para foreground service)
             createNotificationChannel()
-            startForeground(NOTIFICATION_ID, createNotification("Inicializando..."))
+            startForeground(NOTIFICATION_ID, createNotification("Servicio activo"))
         } catch (e: SecurityException) {
             // Permisos insuficientes para foreground service con tipo location
             Log.e(TAG, "SecurityException en startForeground - permisos insuficientes", e)
@@ -490,7 +490,7 @@ class ProximityForegroundService : Service() {
                 val zoneName = zoneInfo?.beaconName ?: "Buscando..."
                 val rssi = zoneInfo?.rssi ?: 0
                 Log.i(TAG, "📍 Zona activa cambiada: $zoneName (RSSI: $rssi dBm)")
-                updateNotification("Zona: $zoneName", rssi)
+                // updateNotification("Zona: $zoneName", rssi)
 
                 // Enviar evento al backend SOLO cuando ZoneManager confirma el cambio
                 // Esto usa la lógica de estabilización (EMA + histéresis + confirmación)
@@ -573,7 +573,7 @@ class ProximityForegroundService : Service() {
             // Iniciar envío periódico de heartbeat (cada 5 minutos)
             startHeartbeat()
 
-            updateNotification("Escaneando...", 0)
+            // updateNotification("Escaneando...", 0)
             Log.i(TAG, "🔍 Proximity scanning started with OPTIMIZED events (ZoneEventService)")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error starting proximity scanning", e)
@@ -681,7 +681,7 @@ class ProximityForegroundService : Service() {
 
                     if (!bluetoothEnabled) {
                         Log.e(TAG, "❌ WATCHDOG: Bluetooth is disabled!")
-                        updateNotification("Bluetooth desactivado", 0)
+                        // updateNotification("Bluetooth desactivado", 0)
                         consecutiveUnhealthyChecks = 0
                         continue
                     }
@@ -702,7 +702,7 @@ class ProximityForegroundService : Service() {
                         if (shouldRestart) {
                             Log.i(TAG, "🔄 WATCHDOG: Forcing scanner restart...")
                             proximityScanner.forceRestart()
-                            updateNotification("Reiniciando scanner...", 0)
+                            // updateNotification("Reiniciando scanner...", 0)
                             consecutiveUnhealthyChecks = 0
                         } else {
                             Log.d(TAG, "📊 WATCHDOG: Waiting for more checks before restart (might just be no beacons nearby)")
@@ -793,7 +793,7 @@ class ProximityForegroundService : Service() {
     private suspend fun forceBeaconSync(tenantId: String, companyId: String) {
         try {
             Log.i(TAG, "🔄 Sincronizando beacons desde servidor...")
-            updateNotification("Sincronizando...", 0)
+            // updateNotification("Sincronizando...", 0)
 
             val zonesResponse = withContext(Dispatchers.IO) {
                 ApiClient.zonesApi.getZones(tenantId = tenantId, companyId = companyId)
