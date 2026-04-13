@@ -17,8 +17,10 @@ object ApiClient {
     // URL del backend (desde .env o secrets.properties)
     private val BASE_URL = BuildConfig.API_BASE_URL
 
+    // En release no se loguean bodies (evita fugar tokens/payloads en logcat).
+    // En debug sí, para facilitar diagnóstico durante desarrollo.
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
     }
 
     private val okHttpClient = OkHttpClient.Builder()

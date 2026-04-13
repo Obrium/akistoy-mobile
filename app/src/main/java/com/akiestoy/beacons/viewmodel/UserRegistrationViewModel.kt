@@ -39,9 +39,6 @@ class UserRegistrationViewModel(
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
-    // RUT de empresa por defecto (hardcodeado - todos los empleados pertenecen a la misma empresa)
-    private val DEFAULT_RUT_EMPRESA = "761234567" // 76123456-7 sin formato
-
     // RUT del empleado - vacío por defecto (el usuario debe ingresarlo)
     private val _rutInput = MutableStateFlow("")
     val rutInput: StateFlow<String> = _rutInput.asStateFlow()
@@ -49,8 +46,9 @@ class UserRegistrationViewModel(
     private val _rutError = MutableStateFlow<String?>(null)
     val rutError: StateFlow<String?> = _rutError.asStateFlow()
 
-    // RUT de empresa - precargado (el usuario no necesita cambiarlo)
-    private val _rutEmpresaInput = MutableStateFlow(DEFAULT_RUT_EMPRESA)
+    // RUT de empresa - vacío por defecto (el usuario debe ingresarlo para soportar
+    // múltiples empresas / tenants)
+    private val _rutEmpresaInput = MutableStateFlow("")
     val rutEmpresaInput: StateFlow<String> = _rutEmpresaInput.asStateFlow()
 
     private val _rutEmpresaError = MutableStateFlow<String?>(null)

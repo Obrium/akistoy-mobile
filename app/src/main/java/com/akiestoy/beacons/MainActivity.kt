@@ -94,6 +94,8 @@ class MainActivity : ComponentActivity() {
             database.userDao(),
             database.zoneDao(),
             database.registeredBeaconDao(),
+            database.pendingEventDao(),
+            database.pendingZoneEventDao(),
             com.akiestoy.beacons.api.ApiClient.authApi,
             com.akiestoy.beacons.api.ApiClient.zonesApi,
             favoritesRepository

@@ -389,8 +389,13 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
                 // Usar IDs del usuario o los fijos de testing
                 val user = database.userDao().getCurrentUserOnce()
-                val tenantId = user?.tenantId ?: AppConfig.DEFAULT_TENANT_ID
-                val companyId = user?.companyId ?: AppConfig.DEFAULT_COMPANY_ID
+                val tenantId = user?.tenantId
+                val companyId = user?.companyId
+                if (tenantId.isNullOrBlank() || companyId.isNullOrBlank()) {
+                    Log.e("BeaconViewModel", "❌ No hay sesión activa (tenantId/companyId faltante)")
+                    _configurationResult.value = ConfigurationResult.Error("Inicie sesión antes de usar esta función")
+                    return@launch
+                }
 
                 Log.i("BeaconViewModel", "📍 Usando tenantId: $tenantId, companyId: $companyId")
 
@@ -451,8 +456,13 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
 
             try {
                 val user = database.userDao().getCurrentUserOnce()
-                val tenantId = user?.tenantId ?: AppConfig.DEFAULT_TENANT_ID
-                val companyId = user?.companyId ?: AppConfig.DEFAULT_COMPANY_ID
+                val tenantId = user?.tenantId
+                val companyId = user?.companyId
+                if (tenantId.isNullOrBlank() || companyId.isNullOrBlank()) {
+                    Log.e("BeaconViewModel", "❌ No hay sesión activa (tenantId/companyId faltante)")
+                    _configurationResult.value = ConfigurationResult.Error("Inicie sesión antes de usar esta función")
+                    return@launch
+                }
                 val token = user?.accessToken
 
                 Log.i("BeaconViewModel", "🏗️ Creando zona: $zoneName")
@@ -528,8 +538,13 @@ class BeaconViewModel(application: Application) : AndroidViewModel(application) 
             try {
                 // Obtener usuario actual o usar IDs fijos de testing
                 val user = database.userDao().getCurrentUserOnce()
-                val tenantId = user?.tenantId ?: AppConfig.DEFAULT_TENANT_ID
-                val companyId = user?.companyId ?: AppConfig.DEFAULT_COMPANY_ID
+                val tenantId = user?.tenantId
+                val companyId = user?.companyId
+                if (tenantId.isNullOrBlank() || companyId.isNullOrBlank()) {
+                    Log.e("BeaconViewModel", "❌ No hay sesión activa (tenantId/companyId faltante)")
+                    _configurationResult.value = ConfigurationResult.Error("Inicie sesión antes de usar esta función")
+                    return@launch
+                }
                 val authHeader = if (user?.accessToken != null) "Bearer ${user.accessToken}" else ""
 
                 Log.i("BeaconViewModel", "📍 Configurando beacon con tenantId: $tenantId, companyId: $companyId")

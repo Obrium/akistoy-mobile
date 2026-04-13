@@ -12,6 +12,8 @@ class UserRepository(
         private val userDao: UserDao,
         private val zoneDao: ZoneDao,
         private val registeredBeaconDao: RegisteredBeaconDao,
+        private val pendingEventDao: PendingEventDao,
+        private val pendingZoneEventDao: PendingZoneEventDao,
         private val authApiService: AuthApiService,
         private val zonesApiService: com.akiestoy.beacons.network.ZonesApiService,
         private val favoritesRepository: FavoritesRepository
@@ -173,8 +175,20 @@ class UserRepository(
         userDao.insertUser(user)
     }
 
+    /**
+     * Limpia la sesión del usuario y todos los datos de Room asociados al tenant.
+     * Previene data cruzada entre sesiones cuando un dispositivo cambia de empleado
+     * o de empresa (ej. logout + login con otro RUT empresa).
+     */
     suspend fun clearUser() {
+        Log.i(TAG, "🧹 Limpiando sesión y datos locales del tenant")
         userDao.deleteAll()
+        zoneDao.deleteAll()
+        registeredBeaconDao.deleteAll()
+        pendingEventDao.deleteAll()
+        pendingZoneEventDao.deleteAll()
+        favoritesRepository.clearFavorites()
+        Log.i(TAG, "✅ Limpieza completada")
     }
 
     /** Verifica si el token de acceso está vigente */

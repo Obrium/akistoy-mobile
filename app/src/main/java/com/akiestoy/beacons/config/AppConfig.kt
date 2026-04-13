@@ -93,17 +93,7 @@ object AppConfig {
      */
     val LOG_INTERVAL_MS: Long = 5000L
 
-    // ==========================================
-    // IDs FIJOS PARA TESTING/DESARROLLO
-    // ==========================================
-
-    /**
-     * Tenant ID fijo para pruebas
-     */
-    const val DEFAULT_TENANT_ID = "550e8400-e29b-41d4-a716-446655440000"
-
-    /**
-     * Company ID fijo para pruebas
-     */
-    const val DEFAULT_COMPANY_ID = "660e8400-e29b-41d4-a716-446655440000"
+    // NOTA: el tenantId y companyId ya no viven acá — se resuelven desde el user
+    // guardado en Room tras el login. Si algún código los necesita y no hay user,
+    // debe fallar loud.
 }
