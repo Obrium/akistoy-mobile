@@ -426,15 +426,15 @@ class ProximityForegroundService : Service() {
         serviceScope.launch {
             database.userDao().getCurrentUser().collect { user ->
                 if (user != null) {
-                    // Actualizar ZoneEventService
-                    zoneEventService.setUser(user.rut, user.name)
+                    // Actualizar ZoneEventService con rut, nombre Y tenantId
+                    zoneEventService.setUser(user.rut, user.name, user.tenantId)
                     // Guardar datos para heartbeat
                     currentTenantId = user.tenantId
                     currentEmployeeRut = user.rut
                     currentEmployeeName = user.name
                     Log.i(TAG, "👤 Usuario actualizado (async): ${user.name} (RUT: ${user.rut}, Tenant: ${user.tenantId})")
                 } else {
-                    zoneEventService.setUser(null, null)
+                    zoneEventService.setUser(null, null, null)
                     currentTenantId = ""
                     currentEmployeeRut = null
                     currentEmployeeName = null

@@ -37,7 +37,7 @@ class ZoneEventService(
     private val api: BeaconProximityApi,
     private val deviceId: String,
     private val pendingZoneEventDao: PendingZoneEventDao? = null,
-    private val tenantId: String = "550e8400-e29b-41d4-a716-446655440000",
+    private var tenantId: String = "",
     private var userRut: String? = null,
     private var userName: String? = null
 ) {
@@ -58,12 +58,15 @@ class ZoneEventService(
     }
 
     /**
-     * Actualiza los datos del usuario (llamar después de login)
+     * Actualiza los datos del usuario y tenant (llamar después de login)
      */
-    fun setUser(rut: String?, name: String?) {
+    fun setUser(rut: String?, name: String?, tenant: String? = null) {
         userRut = rut
         userName = name
-        Log.i(TAG, "👤 Usuario configurado: $name (RUT: $rut)")
+        if (!tenant.isNullOrBlank()) {
+            tenantId = tenant
+        }
+        Log.i(TAG, "👤 Usuario configurado: $name (RUT: $rut, Tenant: $tenantId)")
     }
 
     // Estado actual
@@ -480,6 +483,20 @@ class ZoneEventService(
                 fromZone = request.fromZone,
                 status = "SKIPPED",
                 message = "Sin RUT - no ha iniciado sesión"
+            ))
+            return false
+        }
+
+        // VALIDACIÓN: No enviar eventos sin tenantId - el backend requiere tenant válido
+        if (request.tenantId.isBlank()) {
+            Log.w(TAG, "⚠️ NO SE ENVÍA ${request.eventType} - Sin tenantId configurado")
+            addApiLog(ApiEventLog(
+                timestamp = now,
+                eventType = request.eventType,
+                zoneName = request.zoneName,
+                fromZone = request.fromZone,
+                status = "SKIPPED",
+                message = "Sin tenantId - usuario no configurado correctamente"
             ))
             return false
         }
