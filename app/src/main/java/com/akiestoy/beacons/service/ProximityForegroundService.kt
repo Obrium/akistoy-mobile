@@ -512,7 +512,9 @@ class ProximityForegroundService : Service() {
     }
 
     /**
-     * Busca un beacon registrado usando prioridad: MAC > UUID+major+minor
+     * Busca un beacon registrado SOLO por MAC address.
+     * No se usa fallback por UUID+major+minor para evitar falsos positivos
+     * con dispositivos iBeacon que usan UUIDs comunes.
      */
     private suspend fun findRegisteredBeacon(
         macAddress: String,
@@ -520,7 +522,7 @@ class ProximityForegroundService : Service() {
         major: Int,
         minor: Int
     ): RegisteredBeacon? {
-        // PRIORIDAD 1: Match por MAC address (más confiable)
+        // SOLO match por MAC address - ignorar UUID/major/minor
         val byMac = registeredBeaconsCache.find { beacon ->
             !beacon.mac.isNullOrEmpty() &&
             beacon.mac.equals(macAddress, ignoreCase = true)
@@ -530,24 +532,8 @@ class ProximityForegroundService : Service() {
             return byMac
         }
 
-        // PRIORIDAD 2: Match por UUID + major + minor
-        val byIdentifiers = registeredBeaconsCache.find { beacon ->
-            beacon.advUuid.equals(uuid, ignoreCase = true) &&
-            beacon.major == major &&
-            beacon.minor == minor
-        }
-
-        if (byIdentifiers != null) {
-            return byIdentifiers
-        }
-
-        // Si no está en cache, intentar buscar en BD directamente
-        // (puede que el cache esté desactualizado)
-        return database.registeredBeaconDao().getBeaconByIdentifiers(
-            uuid = uuid.lowercase(),
-            major = major,
-            minor = minor
-        )
+        // Si no está en cache, buscar en BD por MAC
+        return database.registeredBeaconDao().getBeaconByMac(macAddress)
     }
 
     /**

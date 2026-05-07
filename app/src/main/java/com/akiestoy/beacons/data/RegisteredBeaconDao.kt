@@ -29,6 +29,9 @@ interface RegisteredBeaconDao {
     @Query("SELECT * FROM registered_beacons WHERE advUuid = :uuid AND major = :major AND minor = :minor LIMIT 1")
     suspend fun getBeaconByIdentifiers(uuid: String, major: Int, minor: Int): RegisteredBeacon?
 
+    @Query("SELECT * FROM registered_beacons WHERE UPPER(mac) = UPPER(:macAddress) AND status = 'active' LIMIT 1")
+    suspend fun getBeaconByMac(macAddress: String): RegisteredBeacon?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertBeacons(beacons: List<RegisteredBeacon>)
 
